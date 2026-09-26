@@ -1,0 +1,13 @@
+{
+  "name": "muvesic",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node scripts/serve.mjs",
+    "start": "node scripts/serve.mjs",
+    "test": "node --test tests/*.test.mjs",
+    "check": "node --check dist/app.js && node --check dist/music.js && node --check dist/audio.js && node --check dist/tracker.js"
+  },
+  "engines": { "node": ">=20" }
+}
