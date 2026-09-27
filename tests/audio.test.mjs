@@ -5,13 +5,24 @@ class Param{value=0;events=[];setTargetAtTime(...a){this.events.push(['target',.
 class Node{gain=new Param();pan=new Param();frequency=new Param();connect(){}disconnect(){this.disconnected=true;}start(){this.started=true;}stop(){this.stopped=true;this.onended?.();}}
 class Context{currentTime=0;state='suspended';destination=new Node();oscillators=[];createGain(){return new Node();}createDynamicsCompressor(){return new Node();}createStereoPanner(){return new Node();}createBiquadFilter(){return new Node();}createOscillator(){const n=new Node();this.oscillators.push(n);return n;}async resume(){this.state='running';}async close(){this.state='closed';}}
 test('all instruments generate oscillators, envelope and correct tuning',async()=>{
-  for(const sound of ['keys','synth','bell','bass']){
+  for(const sound of ['keys','synth','bell','bass','guitar']){
     const synth=new Synthesizer(Context);await synth.start();synth.play(69,.5,1,sound);
     assert.equal(synth.voice.oscillators[0].oscillator.frequency.value,sound==='bass'?220:440);
     assert.equal(synth.voice.panner.pan.value,1);
     assert.ok(synth.voice.gain.gain.events.some(e=>e[0]==='attack'));
     assert.ok(synth.context.oscillators.every(o=>o.started));await synth.close();
   }
+});
+test('guitar has a bright fundamental and a quick plucked decay',async()=>{
+  const synth=new Synthesizer(Context);await synth.start();synth.play('left',69,.5,0,'guitar');
+  const voice=synth.channelVoices.get('left');
+  assert.deepEqual(voice.oscillators.map(partial=>partial.oscillator.frequency.value),[440,880,1320]);
+  assert.deepEqual(voice.oscillators.map(partial=>partial.oscillator.type),['sawtooth','sine','sine']);
+  assert.deepEqual(voice.filter.frequency.events,[['set',4500,0],['decay',900,.28]]);
+  assert.deepEqual(voice.gain.gain.events.filter(event=>event[0]==='attack'||event[0]==='decay'),[
+    ['attack',.5,.002],['decay',.01,.6],
+  ]);
+  await synth.close();
 });
 test('changing notes releases old voices; loss/stop disconnects every oscillator',async()=>{
   const synth=new Synthesizer(Context);await synth.start();synth.play(60,.5,0,'keys');const old=[...synth.context.oscillators];
@@ -27,7 +38,7 @@ test('mute and volume control the master gain, and pan updates sustained notes',
 test('separate channels can play, pan and release independently',async()=>{
   const synth=new Synthesizer(Context);await synth.start();
   synth.setVolume(.7,false,'left');synth.setVolume(.4,false,'right');
-  synth.play('left',48,.5,-.8,'bass');synth.play('right',72,.5,.8,'keys');
+  synth.play('left',48,.5,-.8,'bass');synth.play('right',72,.5,.8,'guitar');
   assert.equal(synth.channelVoices.size,2);
   synth.pan('left',0);assert.equal(synth.channelVoices.get('left').panner.pan.events.at(-1)[1],0);
   synth.release('left');assert.equal(synth.channelVoices.has('left'),false);assert.equal(synth.channelVoices.has('right'),true);

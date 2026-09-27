@@ -18,3 +18,12 @@ test('settings reject malformed patches, unsupported options and invalid values'
     assert.throws(() => validateSettings(patch), /Invalid instrument settings/);
   }
 });
+
+test('either hand can select guitar without changing the other hand', () => {
+  const left = validateSettings({ left: { sound: 'guitar' } });
+  assert.equal(left.left.sound, 'guitar');
+  assert.equal(left.right.sound, DEFAULT_SETTINGS.right.sound);
+  const right = validateSettings({ right: { sound: 'guitar' } });
+  assert.equal(right.right.sound, 'guitar');
+  assert.equal(right.left.sound, DEFAULT_SETTINGS.left.sound);
+});
