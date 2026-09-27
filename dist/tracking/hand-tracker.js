@@ -11,7 +11,7 @@ async function loadModel(signal) {
   return HandLandmarker.createFromOptions(files, {
     baseOptions: { modelAssetPath: MODEL_URL, delegate: 'CPU' },
     runningMode: 'VIDEO',
-    numHands: 1,
+    numHands: 2,
     minHandDetectionConfidence: .65,
     minHandPresenceConfidence: .65,
     minTrackingConfidence: .65,
@@ -19,7 +19,7 @@ async function loadModel(signal) {
 }
 
 /** Owns one camera stream, model and inference loop. Create anew per session.
- * onFrame receives unmirrored landmarks (or null) and milliseconds.
+ * onFrame receives an array of unmirrored hands (or an empty array) and milliseconds.
  */
 export class HandTracker {
   constructor(video, onFrame, onError) {
@@ -83,9 +83,9 @@ export class HandTracker {
           lastInference = now;
           lastFresh = now;
           const result = this.model.detectForVideo(this.video, now);
-          this.onFrame(result.landmarks[0] || null, now);
+          this.onFrame(result.landmarks || [], now);
         } else if (now - lastFresh > 300) {
-          this.onFrame(null, now);
+          this.onFrame([], now);
         }
         this.frame = requestAnimationFrame(loop);
       } catch (error) {

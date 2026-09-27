@@ -11,7 +11,7 @@ test('mouse mode plays, releases on input loss, and stops its resources', async 
   assert.equal(h.trackers.length, 0);
   assert.ok(h.events.some(([name]) => name === 'input.start'));
   h.input().onPoint(0, 0, 100);
-  assert.deepEqual(h.audioInstances[0].notes[0], [72, .24, -1, 'keys']);
+  assert.deepEqual(h.audioInstances[0].notes[0], ['right', 72, .24, -1, 'keys']);
   h.input().onLost();
   assert.equal(h.audioInstances[0].released, 1);
   h.input().onPoint(1, 1, 200);
@@ -52,7 +52,7 @@ test('a cancelled camera startup ignores late completion, frames and errors', as
   h.session.stop();
   pending.resolve();
   await starting;
-  h.trackers[0].onFrame(Array.from({ length: 21 }, () => ({ x: 0, y: 0 })), 100);
+  h.trackers[0].onFrame([Array.from({ length: 21 }, () => ({ x: 0, y: 0 }))], 100);
   h.trackers[0].onError(new Error('stale failure'));
   assert.equal(h.session.read().state, 'idle');
   assert.equal(h.trackers[0].stopped, 1);
@@ -65,9 +65,9 @@ test('camera coordinates mirror once and missing frames release the note', async
   t.after(() => h.session.dispose());
   await h.session.start();
   const landmarks = Array.from({ length: 21 }, () => ({ x: .2, y: .5 }));
-  h.trackers[0].onFrame(landmarks, 100);
-  assert.ok(Math.abs(h.audioInstances[0].notes[0][2] - .6) < 1e-9);
-  h.trackers[0].onFrame(null, 200);
+  h.trackers[0].onFrame([landmarks], 100);
+  assert.ok(Math.abs(h.audioInstances[0].notes[0][3] - .6) < 1e-9);
+  h.trackers[0].onFrame([], 200);
   assert.equal(h.audioInstances[0].released, 1);
   h.session.stop();
   assert.equal(h.trackers[0].stopped, 1);
@@ -78,14 +78,28 @@ test('invalid settings are atomic and reset restores the default camera session'
   t.after(() => h.session.dispose());
   h.session.switchMode();
   await h.session.start();
-  h.session.applySettings({ scale: 'minor', sound: 'bell', volume: 25, mute: true });
-  assert.deepEqual(h.audioInstances[0].volumes.at(-1), [.25, true]);
+  h.session.applySettings({ left: { scale: 'minor', sound: 'bell', volume: 25, mute: true } });
+  assert.ok(h.audioInstances[0].volumes.some(args => args[0] === .25 && args[1] === true && args[2] === 'left'));
   const before = h.session.read();
-  assert.throws(() => h.session.applySettings({ scale: 'major', volume: 200 }));
+  assert.throws(() => h.session.applySettings({ left: { scale: 'major', volume: 200 } }));
   assert.deepEqual(h.session.read(), before);
   h.session.reset();
   assert.deepEqual(h.session.read(), { state: 'idle', mode: 'camera',
-    scale: 'pentatonic', sound: 'keys', volume: 65, muted: false });
+    left: { scale: 'pentatonic', sound: 'bass', volume: 65, muted: false },
+    right: { scale: 'pentatonic', sound: 'keys', volume: 65, muted: false } });
+});
+
+test('camera mode maps two screen-side hands to independent instruments', async t => {
+  const h = sessionHarness();
+  t.after(() => h.session.dispose());
+  await h.session.start();
+  const left = Array.from({ length: 21 }, () => ({ x: .85, y: .5 }));
+  const right = Array.from({ length: 21 }, () => ({ x: .15, y: .2 }));
+  h.trackers[0].onFrame([right, left], 100);
+  assert.deepEqual(h.audioInstances[0].notes.map(note => [note[0], note[4]]), [['left', 'bass'], ['right', 'keys']]);
+  h.trackers[0].onFrame([right], 200);
+  assert.ok(h.audioInstances[0].releases.includes('left'));
+  assert.ok(!h.audioInstances[0].releases.includes('right'));
 });
 
 test('startup and playback failures return to idle and surface recovery text', async t => {

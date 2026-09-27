@@ -13,10 +13,11 @@ npm run dev
 Open **http://localhost:5173** in a recent desktop Chrome or Edge browser. No npm dependencies or build step are needed. The authored, deployable application lives in `dist/`.
 
 1. Click **Start camera** and allow camera access.
-2. Show one hand (either hand works), keeping the index fingertip visible.
-3. Lift to play higher notes; move sideways to pan; move faster for louder attacks.
-4. Choose Soft keys, Warm synth, Glass bell, or Round bass, and a pentatonic, major, or minor scale.
-5. Stop releases the webcam, tracking model and audio context. Reset also restores defaults. Changing tabs automatically stops the session.
+2. Show one or two hands, keeping each index fingertip visible.
+3. The left side of the screen controls the left instrument, and the right side controls the right instrument.
+4. Lift to play higher notes; move sideways to pan; move faster for louder attacks.
+5. Choose Soft keys, Warm synth, Glass bell, or Round bass for each hand, and a pentatonic, major, or minor scale.
+6. Stop releases the webcam, tracking model and audio context. Reset also restores defaults. Changing tabs automatically stops the session.
 
 **Try with mouse** provides a camera-free way to play using the same mapping and audio engine. Click Start playing, then move over the stage, drag on a touchscreen, or focus the stage and use arrow keys. Escape stops either mode. Touchscreen layout is supported, but webcam performance is targeted at desktop laptops.
 
@@ -37,7 +38,7 @@ The application is split by responsibility so contributors can work in separate 
 
 See [Architecture](docs/architecture.md) for ownership, data flow, lifecycle contracts and extension recipes. See [Contributing](CONTRIBUTING.md) for parallel development, merge guidance and review checks.
 
-The default pentatonic spans C4 to C5 (five distinct pitch classes plus the top octave). Tracking a single hand avoids two-hand switching; it does not enforce handedness. Use only one hand in frame. Missing or stale frames release the current voice and reset movement history. Note that MediaPipe inference runs synchronously on the main thread, capped near 30 Hz; actual frame rate and latency depend on the device and have not been benchmarked on physical webcam hardware.
+The default pentatonic spans C4 to C5 (five distinct pitch classes plus the top octave). Camera mode tracks up to two hands. Hands are assigned by mirrored screen position: the left side controls the left instrument and the right side controls the right instrument. Missing or stale frames release only that side's current voice and reset its movement history. Note that MediaPipe inference runs synchronously on the main thread, capped near 30 Hz; actual frame rate and latency depend on the device and have not been benchmarked on physical webcam hardware.
 
 ## Network and deployment
 
@@ -56,6 +57,6 @@ npm test
 
 Tests cover musical mapping, jitter suppression, note gating, tracking reacquisition, dynamics, tuning, audio graph lifecycle with an AudioContext test double, cancellation/deadline disposal, error messages, session cancellation/restart races, settings validation and HTTP serving of every nested module. They do not substitute for hearing the audio or exercising a physical webcam.
 
-Manual acceptance: start the camera; check that the skeleton aligns with the mirrored hand; play a low-to-high melody; compare slow and fast movement; move out of frame and verify silence; stop and confirm the camera indicator turns off. Also try permission denial, model/network failure, mute, reset, tab switching and restarting during startup.
+Manual acceptance: start the camera; check that each skeleton aligns with the mirrored hand; play separate low-to-high melodies on the left and right sides; compare slow and fast movement; move one hand out of frame and verify only that side goes silent; stop and confirm the camera indicator turns off. Also try permission denial, model/network failure, mute, reset, tab switching and restarting during startup.
 
 Optional `document.modelContext` tools configure/read settings and stop sessions, sharing the UI actions. They are feature-detected and never start camera/audio. A supported WebMCP browser context is needed to validate their registration; automated verification here does not cover that browser proposal.

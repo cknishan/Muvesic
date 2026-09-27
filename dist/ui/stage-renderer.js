@@ -7,11 +7,15 @@ const CONNECTIONS = [
 /** Owns canvas drawing and trajectory history; never controls audio or tracking. */
 export function createStageRenderer(canvas) {
   const ctx = canvas.getContext('2d');
-  let lastVisual = null;
-  let trail = [];
+  const colors = {
+    left: { line: '#c6f36b88', point: '#d9ff95', glow: '#c6f36b26' },
+    right: { line: '#7cc7ff88', point: '#a8dcff', glow: '#7cc7ff26' },
+  };
+  const visuals = new Map();
+  const trails = new Map();
 
-  function drawHand(landmarks, width, height) {
-    ctx.strokeStyle = '#d4f5a788';
+  function drawHand(landmarks, width, height, color) {
+    ctx.strokeStyle = color.line;
     ctx.lineWidth = 2;
     for (const [a, b] of CONNECTIONS) {
       ctx.beginPath();
@@ -22,23 +26,37 @@ export function createStageRenderer(canvas) {
     for (const landmark of landmarks) {
       ctx.beginPath();
       ctx.arc((1 - landmark.x) * width, landmark.y * height, 3, 0, Math.PI * 2);
-      ctx.fillStyle = '#e3f6d4';
+      ctx.fillStyle = color.point;
       ctx.fill();
     }
   }
 
-  function drawTrail(width, height) {
+  function drawTrail(trail, width, height, color) {
     for (let i = 1; i < trail.length; i++) {
       ctx.beginPath();
       ctx.moveTo(trail[i - 1].x * width, trail[i - 1].y * height);
       ctx.lineTo(trail[i].x * width, trail[i].y * height);
-      ctx.strokeStyle = 'rgba(198,243,107,' + (i / trail.length) * .5 + ')';
+      ctx.strokeStyle = color.line.replace('88', Math.round((i / trail.length) * 130).toString(16).padStart(2, '0'));
       ctx.lineWidth = 3;
       ctx.stroke();
     }
   }
 
-  function paint(landmarks, point, time) {
+  function drawVisual({ channel, landmarks, point, time }, width, height) {
+    const color = colors[channel] || colors.right;
+    if (landmarks) drawHand(landmarks, width, height, color);
+    drawTrail(trails.get(channel) || [], width, height, color);
+    ctx.beginPath();
+    ctx.arc(point.x * width, point.y * height, 17, 0, Math.PI * 2);
+    ctx.fillStyle = color.glow;
+    ctx.fill();
+    ctx.beginPath();
+    ctx.arc(point.x * width, point.y * height, 6, 0, Math.PI * 2);
+    ctx.fillStyle = color.point;
+    ctx.fill();
+  }
+
+  function redrawAll() {
     const width = canvas.clientWidth;
     const height = canvas.clientHeight;
     const dpr = Math.min(devicePixelRatio || 1, 2);
@@ -48,29 +66,31 @@ export function createStageRenderer(canvas) {
     }
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, width, height);
-    if (landmarks) drawHand(landmarks, width, height);
-    trail = trail.filter(point => time - point.time < 550);
-    trail.push({ x: point.x, y: point.y, time });
-    drawTrail(width, height);
-    ctx.beginPath();
-    ctx.arc(point.x * width, point.y * height, 17, 0, Math.PI * 2);
-    ctx.fillStyle = '#c6f36b26';
-    ctx.fill();
-    ctx.beginPath();
-    ctx.arc(point.x * width, point.y * height, 6, 0, Math.PI * 2);
-    ctx.fillStyle = '#d9ff95';
-    ctx.fill();
-    lastVisual = { landmarks, point, time };
+    for (const visual of visuals.values()) drawVisual(visual, width, height);
   }
 
-  function clear() {
-    lastVisual = null;
-    trail = [];
-    ctx.clearRect(0, 0, canvas.width, canvas.height);
+  function paint(channel, landmarks, point, time) {
+    const trail = (trails.get(channel) || []).filter(point => time - point.time < 550);
+    trail.push({ x: point.x, y: point.y, time });
+    trails.set(channel, trail);
+    visuals.set(channel, { channel, landmarks, point, time });
+    redrawAll();
+  }
+
+  function clear(channel = null) {
+    if (channel) {
+      visuals.delete(channel);
+      trails.delete(channel);
+      redrawAll();
+    } else {
+      visuals.clear();
+      trails.clear();
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+    }
   }
 
   function redraw() {
-    if (lastVisual) paint(lastVisual.landmarks, lastVisual.point, lastVisual.time);
+    if (visuals.size) redrawAll();
   }
 
   return { paint, clear, redraw };

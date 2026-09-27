@@ -1,5 +1,5 @@
 import { SCALES } from '../music/scales.js';
-import { SOUNDS } from '../app/settings.js';
+import { CHANNELS, SOUNDS } from '../app/settings.js';
 
 /** Optional tools may configure/read/stop; they never start camera or audio. */
 export function registerInstrumentTools(modelContext, session) {
@@ -9,15 +9,19 @@ export function registerInstrumentTools(modelContext, session) {
   const tools = [
     {
       name: 'configure_instrument',
-      description: 'Set the musical scale, sound, volume and mute state. Does not start the camera or audio.',
+      description: 'Set left/right hand scale, sound, volume and mute state. Does not start the camera or audio.',
       inputSchema: {
         type: 'object',
-        properties: {
+        properties: Object.fromEntries(CHANNELS.map(channel => [channel, {
+          type: 'object',
+          properties: {
           scale: { type: 'string', enum: Object.keys(SCALES) },
           sound: { type: 'string', enum: SOUNDS },
           volume: { type: 'number', minimum: 0, maximum: 100 },
           mute: { type: 'boolean' },
-        },
+          },
+          additionalProperties: false,
+        }])),
         additionalProperties: false,
       },
       execute: input => session.applySettings(input),

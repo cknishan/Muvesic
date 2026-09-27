@@ -19,7 +19,17 @@ test('changing notes releases old voices; loss/stop disconnects every oscillator
   synth.release();assert.equal(synth.voice,null);assert.equal(synth.voices.size,0);await synth.close();assert.equal(synth.context.state,'closed');
 });
 test('mute and volume control the master gain, and pan updates sustained notes',()=>{
-  const synth=new Synthesizer(Context);synth.setVolume(.8,true);assert.equal(synth.master.gain.events.at(-1)[1],0);
-  synth.setVolume(.8,false);assert.equal(synth.master.gain.events.at(-1)[1],.8);
+  const synth=new Synthesizer(Context);synth.setVolume(.8,true);assert.equal(synth.channelGains.get('main').gain.events.at(-1)[1],0);
+  synth.setVolume(.8,false);assert.equal(synth.channelGains.get('main').gain.events.at(-1)[1],.8);
   synth.play(60,.5,0,'synth');synth.pan(-1);assert.equal(synth.voice.panner.pan.events.at(-1)[1],-1);
+});
+
+test('separate channels can play, pan and release independently',async()=>{
+  const synth=new Synthesizer(Context);await synth.start();
+  synth.setVolume(.7,false,'left');synth.setVolume(.4,false,'right');
+  synth.play('left',48,.5,-.8,'bass');synth.play('right',72,.5,.8,'keys');
+  assert.equal(synth.channelVoices.size,2);
+  synth.pan('left',0);assert.equal(synth.channelVoices.get('left').panner.pan.events.at(-1)[1],0);
+  synth.release('left');assert.equal(synth.channelVoices.has('left'),false);assert.equal(synth.channelVoices.has('right'),true);
+  await synth.close();assert.equal(synth.context.state,'closed');
 });
