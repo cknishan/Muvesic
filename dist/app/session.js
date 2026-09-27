@@ -1,4 +1,4 @@
-import { arrangeBody, arrangeOrchestra } from '../music/orchestra.js';
+import { applyPosture, arrangeOrchestra } from '../music/orchestra.js';
 import { BodyMapper } from '../music/body-mapper.js';
 import { MotionMapper } from '../music/motion-mapper.js';
 import { SCALES } from '../music/scales.js';
@@ -6,24 +6,26 @@ import { Synthesizer } from '../audio.js';
 import { HandTracker } from '../tracking/hand-tracker.js';
 import { PoseTracker } from '../tracking/pose-tracker.js';
 import { cameraError } from '../tracking/errors.js';
-import { CHANNELS, DEFAULT_SETTINGS, validateSettings } from './settings.js';
+import { LIMBS, DEFAULT_SETTINGS, validateSettings } from './settings.js';
 
 const ENSEMBLE = 'ensemble';
-const BODY = 'body';
-const ALL_CHANNELS = [...CHANNELS, ENSEMBLE, BODY];
-/** Which channels each performance owns. Solo drives two hands; the other modes
- *  each collapse to one. */
-const PERFORMANCES = Object.freeze({ solo: CHANNELS, orchestra: [ENSEMBLE], body: [BODY] });
+const HAND_CHANNELS = ['left', 'right'];
+/** Which channels each performance owns. Solo drives two hands; orchestra drives
+ *  one conductor; body drives four limbs, one per tracked body part. */
+const PERFORMANCES = Object.freeze({
+  solo: HAND_CHANNELS, orchestra: [ENSEMBLE], body: [...LIMBS],
+});
+const ALL_CHANNELS = Object.freeze([...HAND_CHANNELS, ENSEMBLE, ...LIMBS]);
 
 /** Owns idle/loading/running transitions and per-session resources.
  * Factories are injectable so lifecycle tests need neither a DOM nor hardware.
  * The generation token prevents an old async startup from reviving a stopped session.
  *
- * Performance modes are exclusive. Solo plays the two tracked hands on their own
- * left/right channels; orchestra drops to a single conductor that drives one
- * four-section ensemble; body mode swaps the hands for one pose skeleton and
- * voices it across those same four sections. Either way only the active channels
- * own a voice.
+ * Performance modes are exclusive. Solo plays the two tracked hands; orchestra
+ * collapses to one conductor driving a four-section ensemble; body mode swaps the
+ * hands for a pose skeleton and turns each visible limb into its own voice, so a
+ * full-body player sounds four channels at once. Either way only the active
+ * channels own a voice.
  */
 export function createSession({
   view, video, createInput,
@@ -31,14 +33,11 @@ export function createSession({
   createTracker = (...args) => new HandTracker(...args),
   createPoseTracker = (...args) => new PoseTracker(...args),
 }) {
-  // Each channel keeps its own musical history, and the borrowed ones keep the
-  // right hand's starting scale, so no switch can inherit a held note.
-  const mappers = {
-    left: new MotionMapper(DEFAULT_SETTINGS.left.scale),
-    right: new MotionMapper(DEFAULT_SETTINGS.right.scale),
-    [ENSEMBLE]: new MotionMapper(DEFAULT_SETTINGS.right.scale),
-    [BODY]: new BodyMapper(DEFAULT_SETTINGS.right.scale),
-  };
+  // Each voice channel keeps its own musical history. Body mode's geometry mapper
+  // is shared by all four limb voices; it owns calibration and posture, not audio.
+  const voices = Object.fromEntries(LIMBS.map(channel => [channel, new MotionMapper(DEFAULT_SETTINGS[channel].scale)]));
+  voices[ENSEMBLE] = new MotionMapper(DEFAULT_SETTINGS.right.scale);
+  const geometry = new BodyMapper();
   const clearTracking = () => Object.fromEntries(ALL_CHANNELS.map(id => [id, false]));
   let settings = { ...DEFAULT_SETTINGS };
   let mode = 'camera';
@@ -52,15 +51,12 @@ export function createSession({
   // Solo reads the right hand's scale, matching the keyboard lanes it draws.
   // Pointer and keyboard input carry no posture, so they stay with the hands.
   const practiceChannel = () => settings.performance === 'orchestra' ? ENSEMBLE : 'right';
-  const activeChannels = () => PERFORMANCES[settings.performance] ?? CHANNELS;
+  const activeChannels = () => PERFORMANCES[settings.performance] ?? HAND_CHANNELS;
   const trackedChannels = () => activeChannels().filter(id => tracking[id]);
-  // Ensemble and body have no settings of their own: they borrow the right hand's
-  // scale and mix, so a choice made for solo still shapes them.
+  // The borrowed channels used to include body, but body now owns its own scale,
+  // so only the ensemble still borrows the right hand's mix.
   const borrowed = () => settings.right;
-  const masterVolume = () => {
-    const { volume, mute } = borrowed();
-    return [volume / 100, mute];
-  };
+  const masterVolume = () => [borrowed().volume / 100, borrowed().mute];
   // Body mode needs a pose model, which is a different camera pipeline entirely.
   const needsPoseTracker = performance => performance === 'body';
 
@@ -69,7 +65,7 @@ export function createSession({
     getLaneCount: () => SCALES[settings.right.scale].notes.length,
     onPoint: (x, y, time) => playPoint(practiceChannel(), x, y, time),
     onLost: () => loseTracking(practiceChannel()),
-    onPitchStep: () => mappers[practiceChannel()].resetSmoothing(),
+    onPitchStep: () => voices[practiceChannel()].resetSmoothing(),
   });
   const renderControls = () => view.renderControls({ state, mode, performance: settings.performance });
 
@@ -78,7 +74,8 @@ export function createSession({
     for (const id of channels) {
       if (tracking[id]) {
         audio?.release(id);
-        mappers[id].reset();
+        voices[id]?.reset();
+        geometry.reset();
         view.clearVisual(id);
       }
       tracking[id] = false;
@@ -86,27 +83,31 @@ export function createSession({
     const tracked = trackedChannels().length;
     // Body mode carries its own guidance: how much of the player is in frame and
     // whether the neutral pose has been learned yet.
-    const hint = settings.performance === 'body' ? mappers[BODY].hint() : null;
+    const hint = settings.performance === 'body' ? geometry.hint() : null;
     view.showTrackingHint(state === 'running' && mode === 'camera' && tracked === 0, hint || undefined);
     if (state === 'running') {
-      const missed = settings.performance === 'body' ? 'No body detected' : 'No hands detected';
-      const guidance = settings.performance === 'orchestra'
-        ? 'Show one index finger to conduct the ensemble'
-        : 'Show one or two hands, then move an index finger to play';
-      view.setStatus(mode === 'camera' ? tracked ? guidance + ' · Playing' : missed : 'Mouse & keys · Playing');
+      if (settings.performance === 'body') {
+        view.setStatus(geometry.status());
+      } else {
+        const missed = 'No hands detected';
+        const guidance = settings.performance === 'orchestra'
+          ? 'Show one index finger to conduct the ensemble'
+          : 'Show one or two hands, then move an index finger to play';
+        view.setStatus(mode === 'camera' ? tracked ? guidance + ' · Playing' : missed : 'Mouse & keys · Playing');
+      }
     }
   }
 
+  /** Hand and orchestra: one tracker point becomes one note event on one channel. */
   function playPoint(channel, x, y, time, landmarks = null) {
     if (state !== 'running') return;
-    const mapped = mappers[channel].update(x, y, time);
+    const mapped = voices[channel].update(x, y, time);
     if (!mapped) return;
     tracking[channel] = true;
     view.showTrackingHint(false);
     const tracked = trackedChannels().length;
     const hand = tracked + (settings.performance === 'orchestra' ? ' hand conducting' : ' hand' + (tracked === 1 ? '' : 's') + ' tracked');
     view.setStatus(mode === 'camera' ? hand + ' · Playing' : 'Mouse & keys · Playing');
-    // A hand setting follows the channel that actually plays it.
     const channelSettings = settings[channel] || borrowed();
     const arrangement = settings.performance === 'orchestra'
       ? arrangeOrchestra(mapped.midi, channelSettings.scale) : null;
@@ -121,34 +122,72 @@ export function createSession({
     view.renderNote(channel, mapped, landmarks, time, arrangement);
   }
 
-  /** Body mode's whole dispatch: one pose skeleton in, one sustained chord out.
-   *
-   * The mapper normalizes, calibrates and classifies; the arrangement gives the
-   * settled posture somewhere to sound. A null frame means the body is not usable
-   * yet, which is handled exactly like a lost hand rather than as an error.
-   */
+  /** Body mode: one pose becomes up to four voice events, one per visible limb. */
   function playPose(pose, time) {
     if (state !== 'running' || settings.performance !== 'body') return;
-    const frame = mappers[BODY].update(pose, time);
+    const frame = geometry.update(pose, time);
     if (!frame) {
-      loseTracking(BODY);
+      loseTrackingForBody();
       return;
     }
-    tracking[BODY] = true;
     view.showTrackingHint(Boolean(frame.hint), frame.hint || undefined);
     view.setStatus(frame.status);
-    const arrangement = frame.trigger ? arrangeBody(frame, borrowed().scale) : null;
-    try {
-      if (frame.trigger) {
-        audio.play(BODY, frame.midi, frame.velocity, frame.pan, null, arrangement);
-      } else {
-        audio.pan(BODY, frame.pan ?? 0);
+    // Postures are a body-level mood: arms up lifts the arms, squat drops the
+    // legs, wide opens stereo, lean drags the rig. Apply once before dispatch so
+    // every limb gets the same shape.
+    const voiced = applyPosture(
+      frame.limbs.map(limb => ({
+        ...limb,
+        ...voices[limb.channel].update(limb.x, limb.y, time),
+      })),
+      frame.posture, frame.strength);
+    let any = false;
+    for (const event of voiced) {
+      if (!event) continue;
+      const channel = event.channel;
+      const visible = frame.limbs.find(l => l.channel === channel)?.visible;
+      if (!visible) {
+        if (tracking[channel]) {
+          audio?.release(channel);
+          voices[channel].reset();
+          view.clearVisual(channel);
+          tracking[channel] = false;
+        }
+        continue;
       }
-    } catch {
-      fail(new Error('Audio playback stopped. Press Start to try again.'));
-      return;
+      any = true;
+      tracking[channel] = true;
+      const channelSettings = settings[channel];
+      // Each limb carries its own octave shift, so legs stay in the bass while
+      // arms live in the melody register.
+      const midi = event.midi + channelSettings.octave;
+      try {
+        if (event.trigger) {
+          audio.play(channel, midi, event.velocity, event.pan, channelSettings.sound, null);
+        } else audio.pan(channel, event.pan);
+      } catch {
+        fail(new Error('Audio playback stopped. Press Start to try again.'));
+        return;
+      }
+      view.renderNote(channel, { ...event, midi }, pose, time, null);
     }
-    view.renderNote(BODY, frame, pose, time, arrangement);
+    if (!any) loseTrackingForBody();
+  }
+
+  /** Body mode's analogue of losing a hand: release every limb that was sounding. */
+  function loseTrackingForBody() {
+    for (const channel of LIMBS) {
+      if (tracking[channel]) {
+        audio?.release(channel);
+        voices[channel].reset();
+        view.clearVisual(channel);
+      }
+      tracking[channel] = false;
+    }
+    geometry.reset();
+    const hint = geometry.hint();
+    view.showTrackingHint(state === 'running' && mode === 'camera', hint || undefined);
+    if (state === 'running') view.setStatus(geometry.status());
   }
 
   function handsByChannel(hands) {
@@ -159,8 +198,7 @@ export function createSession({
   }
 
   /** Orchestra keeps one hand on screen: hold the hand nearest the last conductor so
-   * a second hand entering frame cannot steal the ensemble mid-note.
-   */
+   * a second hand entering frame cannot steal the ensemble mid-note. */
   function conductorOf(hands, previousX) {
     const candidates = hands.filter(hand => hand?.[8]);
     if (candidates.length < 2 || previousX === null) return candidates[0] || null;
@@ -184,7 +222,8 @@ export function createSession({
     clearInterval(sessionTimer);
     sessionTimer = null;
     input.stop();
-    for (const mapper of Object.values(mappers)) mapper.reset();
+    for (const voice of Object.values(voices)) voice.reset();
+    geometry.reset();
     tracking = clearTracking();
     view.showTrackingHint(false);
     view.clearVisual();
@@ -208,12 +247,11 @@ export function createSession({
     try {
       ownAudio = createAudio();
       audio = ownAudio;
-      for (const channel of CHANNELS) {
+      for (const channel of ALL_CHANNELS) {
         audio.setVolume(settings[channel].volume / 100, settings[channel].mute, channel);
       }
-      // Orchestra and body ignore the per-hand sound and level, so they borrow one hand's mix.
+      // Orchestra ignores per-hand sounds and borrows the right hand's mix.
       audio.setVolume(...masterVolume(), ENSEMBLE);
-      audio.setVolume(...masterVolume(), BODY);
       await ownAudio.start();
       if (token !== generation) {
         void ownAudio.close().catch(() => {});
@@ -233,7 +271,7 @@ export function createSession({
             return;
           }
           const channels = handsByChannel(hands);
-          for (const channel of CHANNELS) {
+          for (const channel of HAND_CHANNELS) {
             const landmarks = channels[channel];
             if (!landmarks) {
               loseTracking(channel);
@@ -266,7 +304,7 @@ export function createSession({
         input.start();
       }
     } catch (error) {
-      if (token === generation && error.name !== 'AbortError') fail(error);
+      if (token !== generation && error.name !== 'AbortError') fail(error);
     }
   }
 
@@ -279,35 +317,32 @@ export function createSession({
     if (performanceChanged && needsPoseTracker(next.performance) !== needsPoseTracker(settings.performance)) {
       stop('Ready when you are');
     }
-    const changed = CHANNELS.filter(channel =>
-      next[channel].scale !== settings[channel].scale || next[channel].sound !== settings[channel].sound);
-    const scaleChanged = next.right.scale !== settings.right.scale;
-    // Only the channels that are active right now can hold a voice, so capture them
-    // before the new performance replaces the old one.
+    // Each channel that changed its scale needs its mapper retuned, and the
+    // ensemble still borrows the right hand's scale.
+    const scaleChanged = {};
+    for (const channel of ALL_CHANNELS) {
+      scaleChanged[channel] = next[channel].scale !== settings[channel].scale;
+    }
     const sounding = trackedChannels();
     settings = next;
-    const toRelease = performanceChanged ? sounding : changed;
+    const toRelease = performanceChanged ? sounding : ALL_CHANNELS.filter(channel =>
+      next[channel].scale !== settings[channel].scale || next[channel].sound !== settings[channel].sound);
     for (const channel of toRelease) {
       audio?.release(channel);
       view.clearVisual(channel);
     }
-    for (const channel of changed) mappers[channel].setScale(settings[channel].scale);
-    // The borrowed channels must follow the scale they borrow, or the ladder the
-    // player sees would stop matching the notes they hear.
-    if (scaleChanged) {
-      for (const channel of [ENSEMBLE, BODY]) mappers[channel].setScale(settings.right.scale);
+    for (const channel of ALL_CHANNELS) if (scaleChanged[channel]) voices[channel]?.setScale(settings[channel].scale);
+    if (performanceChanged) {
+      for (const voice of Object.values(voices)) voice.reset();
+      geometry.reset();
     }
-    if (performanceChanged) for (const mapper of Object.values(mappers)) mapper.reset();
-    for (const channel of CHANNELS) {
+    for (const channel of ALL_CHANNELS) {
       audio?.setVolume(settings[channel].volume / 100, settings[channel].mute, channel);
     }
-    if (audio) {
-      audio.setVolume(...masterVolume(), ENSEMBLE);
-      audio.setVolume(...masterVolume(), BODY);
-    }
+    if (audio) audio.setVolume(...masterVolume(), ENSEMBLE);
     view.renderSettings(settings);
     renderControls();
-    if (changed.length) view.renderLanes(settings);
+    if (Object.values(scaleChanged).some(Boolean)) view.renderLanes(settings);
     return readSettings();
   }
 
@@ -335,13 +370,12 @@ export function createSession({
   }
 
   function readSettings() {
-    return {
-      performance: settings.performance,
-      ...Object.fromEntries(CHANNELS.map(channel => [channel, {
-        scale: settings[channel].scale, sound: settings[channel].sound,
-        volume: settings[channel].volume, muted: settings[channel].mute,
-      }])),
-    };
+    const snapshot = { performance: settings.performance };
+    for (const channel of ALL_CHANNELS) {
+      const { scale, sound, volume, mute, octave } = settings[channel];
+      snapshot[channel] = { scale, sound, volume, muted: mute, octave };
+    }
+    return snapshot;
   }
 
   view.renderLanes(settings);

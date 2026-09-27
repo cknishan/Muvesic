@@ -26,32 +26,30 @@ export function arrangeOrchestra(midi, scale) {
   ];
 }
 
-/** Body mode voices one sustained four-section chord per movement.
- *
- * The root is already the lower wrist, so every part is built above or under it
- * and never fights the melody. Posture colours the voicing instead of adding
- * notes: arms up lift and brighten, a squat drops and thickens, a wide pose
- * opens the stereo image and a lean drags the whole image sideways, and posture
- * strength opens the level across all four sections so a held shape swells while
- * a passing one stays light.
- *
- * The parts come back in section order, the same as arrangeOrchestra, so one
- * readout renders either arrangement.
- */
-export function arrangeBody(frame, scale) {
-  const { midi, posture = null, strength = 0, pan = 0 } = frame;
-  const interval = diatonic(midi, scale);
-  const high = posture === 'arms_up';
-  const low = posture === 'squat';
-  const octave = high ? 12 : low ? -12 : 0;
+/** Body mode's settled posture shapes the four limb voices the same way:
+ *  arms-up lifts the two arm channels an octave, squat drops the two leg
+ *  channels an octave, wide opens the stereo image across all four, and lean
+ *  drags every voice sideways. A null posture is a no-op so the four voices
+ *  keep their own settings. */
+export function applyPosture(frames, posture, strength) {
+  if (!posture) return frames;
+  const s = clamp(strength, 0, 1);
+  const tilt = posture === 'lean' ? clamp(frames.reduce((max, f) => Math.max(max, Math.abs(f.pan)), 0), -1, 1) * .5 : 0;
   const width = posture === 'wide' ? 1.5 : 1;
-  const tilt = posture === 'lean' ? clamp(pan, -1, 1) * .5 : 0;
-  const level = base => base * (low ? 1.25 : high ? .9 : 1) * (.55 + clamp(strength, 0, 1) * .45);
-  const place = offset => clamp(tilt + offset * width, -1, 1);
-  return [
-    { midi: midi + octave, sound: 'strings', level: level(.26), pan: place(.4) },
-    { midi: midi + interval(2) + octave, sound: 'woodwind', level: level(.3), pan: place(.1) },
-    { midi: midi + interval(4) + octave, sound: 'brass', level: level(.22), pan: place(-.35) },
-    { midi: midi - 12 + (high ? 12 : 0), sound: 'cello', level: level(.32), pan: place(-.25) },
-  ];
+  return frames.map(frame => {
+    let midi = frame.midi;
+    if (posture === 'arms_up' && (frame.channel === 'left' || frame.channel === 'right')) {
+      midi += 12;
+    } else if (posture === 'squat' && (frame.channel === 'lowerLeft' || frame.channel === 'lowerRight')) {
+      midi -= 12;
+    }
+    const pan = clamp(frame.pan * width + tilt, -1, 1);
+    const velocity = frame.velocity * (1 + s * .3);
+    return { ...frame, midi, pan, velocity };
+  });
 }
+
+/** True if the channel is an arm in body mode (and therefore responds to the
+ *  arms-up posture). Used by the view to highlight the right limb group. */
+export const ARM_CHANNELS = Object.freeze(['left', 'right']);
+export const LEG_CHANNELS = Object.freeze(['lowerLeft', 'lowerRight']);

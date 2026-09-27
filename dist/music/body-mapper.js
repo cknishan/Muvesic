@@ -1,52 +1,35 @@
 import { clamp } from '../shared/math.js';
-import { SCALES } from './scales.js';
-import { pitchIndex } from './motion-mapper.js';
 import { bodyFeatures, bodyMotion, framing, isPose, mirrorPose, neutralPose } from '../tracking/posture.js';
 import { PostureClassifier } from '../tracking/classifier.js';
 
 /** A standing-still window at ~20 Hz, long enough to average out tracker noise. */
 const CALIBRATION_FRAMES = 24;
-/** Same attack gate as the fingertip mapper, so both instruments feel alike. */
-const ATTACK_GAP = 85;
-/** Torso lengths per second counted as a full-scale movement. */
-const FULL_SPEED = 3;
-/** Arm heights, in torso lengths above the hips, that span the pitch ladder:
- *  arms hanging at your sides, up to arms straight overhead. */
-const ARMS_LOW = -.5;
-const ARMS_HIGH = 2.2;
+/** Per-limb pose heights in torso lengths above the hip that map to the lane ladder.
+ *  Arms hang at -1.3 torso and reach overhead at +1, so the arms ladder spans
+ *  about 2.3 torso lengths. Legs fold to roughly hip height and rise to about hip
+ *  height on a high knee, so the legs ladder spans roughly 1.5 torso lengths. */
+const ARM_LOW = -1.3;
+const ARM_HIGH = 1;
+const LEG_LOW = -1.2;
+const LEG_HIGH = .3;
+/** Visibility threshold for a limb's anchor and reach. Below it the limb goes
+ *  silent rather than guessing wildly where the joint is. */
+const LIMB_VISIBLE = .55;
 
-/** Turn a body-relative arm height into a 0..1 screen position, the shape the
- *  shared lane helper expects. The flip matters: arms up have to read as the top
- *  of the stage, because the top of the stage is the high notes. */
-const lane = rise => clamp(1 - (rise - ARMS_LOW) / (ARMS_HIGH - ARMS_LOW));
-
-/** Turns whole-body movement into note events.
+/** Owns body-level state — calibration, framing, posture classification — and
+ *  produces per-limb screen positions for the session to dispatch through the
+ *  ordinary MotionMapper pipeline. Each limb's mapper still owns its own scale,
+ *  smoothing and retrigger gate, because those are musical and per-channel.
  *
- * Two arms make two voices: the higher wrist leads the melody and owns the lane
- * the player sees, while the lower wrist sets the root the arrangement is built
- * from. Every distance is divided by the player's own calibrated torso, so a
- * player standing close and a player standing back read the same, and stepping
- * back to fit their feet in frame does not retune the instrument.
- *
- * Postures are read here but sounded by the caller through music/orchestra.js,
- * which keeps geometry free of audio and arrangement knowledge.
+ *  Pitch is read against the player's own calibrated torso, so the four lanes
+ *  read the same whether the player is close to the camera or standing back.
+ *  Postures modulate the four voices together rather than adding notes; the
+ *  session applies them after the per-limb mapping.
  */
 export class BodyMapper {
-  constructor(scale = 'pentatonic') {
+  constructor() {
     this.classifier = new PostureClassifier();
-    this.scale = 'pentatonic';
-    this.setScale(scale);
-  }
-
-  setScale(scale) {
-    if (!Object.hasOwn(SCALES, scale)) throw new Error('Unknown scale');
-    this.scale = scale;
     this.reset();
-  }
-
-  /** Keyboard steps arrive with no posture attached, so there is nothing to smooth. */
-  resetSmoothing() {
-    this.previous = null;
   }
 
   reset() {
@@ -57,22 +40,18 @@ export class BodyMapper {
     this.time = null;
     this.energy = 0;
     this.framing = 'lost';
-    this.melodyIndex = null;
-    this.rootIndex = null;
-    this.lastMelody = null;
-    this.lastRoot = null;
-    this.lastTrigger = -Infinity;
     this.posture = null;
+    this.strength = 0;
     this.classifier.reset();
   }
 
   /** Guidance for the stage overlay, or null while nothing needs saying. */
   hint() {
     if (this.framing === 'step-back') {
-      return 'Step back so I can see your feet<br><small>Squats and jumps need your whole body in frame.</small>';
+      return 'Step back so I can see your feet<br><small>Each leg is its own voice.</small>';
     }
     if (this.framing === 'upper') {
-      return 'Upper body only<br><small>Step back for squats and jumps, or keep dancing with your arms.</small>';
+      return 'Upper body only<br><small>Step back to bring your legs in, or keep dancing with your arms.</small>';
     }
     if (!this.calibrated) return 'Stand tall and hold still<br><small>I am learning your neutral pose.</small>';
     return null;
@@ -80,13 +59,15 @@ export class BodyMapper {
 
   status() {
     if (this.framing === 'step-back') return 'Step back — feet out of frame';
-    if (this.framing === 'upper') return 'Upper body · Playing';
+    if (this.framing === 'upper') return 'Upper body · Arms only';
     if (!this.calibrated) return 'Stand tall and hold still…';
-    return 'Body tracked · Playing';
+    return 'Body tracked · Four voices playing';
   }
 
-  /** @returns null when the frame yields nothing playable, which the caller must
-   *  treat exactly like a lost subject. */
+  /** @returns null when the frame yields nothing playable. The caller treats this
+   *  exactly like a lost subject. Otherwise returns an object with per-limb data:
+   *  `limbs: [{ channel, x, y, visible }, ...]`, the settled `posture`, and the
+   *  hint/status strings. */
   update(landmarks, time) {
     if (!isPose(landmarks) || !Number.isFinite(time)) return null;
     if (this.time !== null && time <= this.time) return null;
@@ -103,43 +84,33 @@ export class BodyMapper {
     this.previous = features;
     this.time = time;
 
-    const notes = SCALES[this.scale].notes;
-    const top = notes.length - 1;
-    // Arm height is read against the hips, not the screen, so a player standing
-    // back to get their whole body in frame does not quietly drop an octave.
-    const melodyIndex = clamp(pitchIndex(lane(features.armR), notes.length, this.melodyIndex), 0, top);
-    const rootIndex = clamp(pitchIndex(lane(features.armL), notes.length, this.rootIndex), 0, top);
-    const melody = notes[top - melodyIndex];
-    const root = notes[top - rootIndex];
-    // The arrangement builds a triad above the root, so the root never rides over
-    // the melody: the lower wrist is the floor and the higher wrist is the tune.
-    const midi = Math.min(melody, root);
-    const trigger = (melody !== this.lastMelody || root !== this.lastRoot) &&
-      time - this.lastTrigger >= ATTACK_GAP;
-    if (trigger) {
-      this.lastMelody = melody;
-      this.lastRoot = root;
-      this.lastTrigger = time;
-    }
-    this.melodyIndex = melodyIndex;
-    this.rootIndex = rootIndex;
+    const limbs = [
+      this.limb('left', landmarks, features, 11, 15, ARM_LOW, ARM_HIGH),
+      this.limb('right', landmarks, features, 12, 16, ARM_LOW, ARM_HIGH),
+      this.limb('lowerLeft', landmarks, features, 23, 27, LEG_LOW, LEG_HIGH),
+      this.limb('lowerRight', landmarks, features, 24, 28, LEG_LOW, LEG_HIGH),
+    ];
 
     const posture = this.classifier.update(features, motion);
     this.posture = posture.id;
-    return {
-      x: features.wristX,
-      y: features.wristY,
-      midi,
-      index: melodyIndex,
-      trigger,
-      pan: clamp(features.wristX * 2 - 1, -1, 1),
-      velocity: .24 + clamp(motion.speedR / FULL_SPEED) * .66,
-      intensity: clamp(this.energy / FULL_SPEED),
-      posture: posture.id,
-      strength: posture.strength,
-      hint: this.hint(),
-      status: this.status(),
-    };
+    this.strength = posture.strength;
+    return { limbs, posture: posture.id, strength: posture.strength,
+      hint: this.hint(), status: this.status() };
+  }
+
+  /** One limb's screen position: mirrored x so left is left, lane y so the
+   *  MotionMapper's pitch ladder reads top=high, and a visibility flag the
+   *  caller uses to release a missing limb rather than play a guess. */
+  limb(channel, landmarks, features, shoulder, wrist, low, high) {
+    const anchor = landmarks[shoulder];
+    const reach = landmarks[wrist];
+    const visible = Math.min(anchor?.visibility ?? 0, reach?.visibility ?? 0) >= LIMB_VISIBLE;
+    // Arms-down reads as the bottom of the ladder; raised arms read as the top.
+    // The flip matters because the pitch ladder is top=high pitch.
+    const span = high - low;
+    const rise = (anchor.y - reach.y) / features.torso;
+    const lane = clamp(1 - (rise - low) / span);
+    return { channel, x: clamp(1 - reach.x), y: lane, visible };
   }
 
   /** Averages a standing-still window into the ruler every later feature uses. */
@@ -157,13 +128,10 @@ export class BodyMapper {
     return this.resting();
   }
 
-  /** The shaping frame used while calibrating: no note, but the overlay and the
-   * posture readout stay live so the player can see the stage is working. */
+  /** A calibration frame: no per-limb data yet, but the overlay and posture
+   *  readout stay live so the player can see the stage is working. */
   resting() {
-    return {
-      x: .5, y: .5, midi: null, index: null, trigger: false, pan: null,
-      velocity: 0, intensity: 0,
-      posture: this.posture, strength: 0, hint: this.hint(), status: this.status(),
-    };
+    return { limbs: [], posture: this.posture, strength: 0,
+      hint: this.hint(), status: this.status() };
   }
 }
