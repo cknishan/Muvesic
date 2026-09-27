@@ -58,3 +58,7 @@ The input adapter receives callbacks and read functions; it does not import the 
 Run npm run check and npm test. The syntax checker discovers all nested JavaScript in dist/, scripts/ and tests/. Server tests discover and fetch every application module, checking JavaScript MIME types. Existing audio, music and deadline tests continue to exercise the compatibility exports. Session tests exercise injected boundaries, including cancellation/restart races and missing camera frames.
 
 Automated doubles do not establish actual webcam alignment, latency, sound quality or WebMCP browser support. Perform the manual checks in CONTRIBUTING.md when those areas change.
+
+## Performance modes
+
+The `performance` setting (`solo` or `orchestra`) is independent of camera/mouse input. `music/orchestra.js` turns a mapped root into four diatonic section parts. The session passes this arrangement as the optional fifth argument to `Synthesizer.play`; solo callers retain the four-argument interface. The synthesizer owns all active section voices and releases them together, retaining releasing voices until oscillator cleanup completes. `audio/voice.js` defines the synthesized section timbres. Settings changes reset mapping and release all active sections.

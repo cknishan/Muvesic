@@ -14,6 +14,7 @@
   <header class="masthead"><a class="brand" href="./" aria-label="Muvesic home"><span class="brand-mark" aria-hidden="true">m.</span>muvesic</a><span class="edition">MOVEMENT INTO MUSIC <span class="edition-line"></span> VOL. 01</span><span class="privacy">Your camera stays on your device</span></header>
   <main>
     <div class="intro"><div><p class="eyebrow">THE AIR IS YOUR INSTRUMENT</p><h1>Make room for music<span>.</span></h1></div><p>Raise a hand. Find a note.<br>Draw your own melody.</p></div>
+    <div class="performance-bar"><label for="performance">Play your way</label><select id="performance"><option value="solo">Solo instrument</option><option value="orchestra">Orchestra</option></select><span id="performance-hint">One gesture. Your own melody.</span></div>
     <section class="instrument" aria-label="Motion instrument">
       <div class="stage-column">
         <div class="stage-toolbar"><span id="status" role="status" aria-live="polite">Ready when you are</span><span id="input-label">CAMERA INPUT</span></div>
@@ -31,7 +32,8 @@
       </div>
       <aside class="controls" aria-label="Instrument settings">
         <div class="control-heading"><h2>Your sound</h2><button id="reset" class="text-button" title="Stop and restore default settings">Reset ↺</button></div>
-        <label for="sound">Instrument</label><select id="sound"><option value="keys">Soft keys</option><option value="synth">Warm synth</option><option value="bell">Glass bell</option></select>
+        <label for="sound" id="sound-label">Instrument</label><select id="sound"><option value="keys">Soft keys</option><option value="synth">Warm synth</option><option value="bell">Glass bell</option></select>
+        <div id="ensemble" class="ensemble" hidden><p class="eyebrow">YOUR ORCHESTRA</p><div><span>Strings</span><span>Woodwinds</span><span>Brass</span><span>Bass</span></div><p>Four synthesized sections follow your lead. Lift for higher harmonies; sweep faster for a fuller sound.</p></div>
         <label for="scale">Scale</label><select id="scale"><option value="pentatonic">C major pentatonic</option><option value="major">C major</option><option value="minor">A minor</option></select><p class="field-hint" id="scale-hint">Five tones, plenty of possibilities.</p>
         <div class="volume-label"><label for="volume">Volume</label><output id="volume-value" for="volume">65%</output></div><div class="volume-row"><input id="volume" type="range" min="0" max="100" value="65"><button id="mute" class="mute-button" aria-pressed="false">Mute</button></div>
         <div class="note-monitor"><p class="eyebrow">CURRENT NOTE</p><div class="note-readout"><span id="note">—</span><span id="frequency">Waiting to play</span></div><div class="meter-label"><span>Movement</span><span id="dynamics">At rest</span></div><div class="meter" role="meter" aria-label="Movement intensity" aria-valuemin="0" aria-valuemax="100" aria-valuenow="0" id="meter"><span id="meter-fill"></span></div><div class="pan-track" aria-hidden="true"><span id="pan-dot"></span></div><div class="pan-label"><span>Left</span><span>Pan</span><span>Right</span></div></div>

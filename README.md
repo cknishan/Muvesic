@@ -59,3 +59,9 @@ Tests cover musical mapping, jitter suppression, note gating, tracking reacquisi
 Manual acceptance: start the camera; check that the skeleton aligns with the mirrored hand; play a low-to-high melody; compare slow and fast movement; move out of frame and verify silence; stop and confirm the camera indicator turns off. Also try permission denial, model/network failure, mute, reset, tab switching and restarting during startup.
 
 Optional `document.modelContext` tools configure/read settings and stop sessions, sharing the UI actions. They are feature-detected and never start camera/audio. A supported WebMCP browser context is needed to validate their registration; automated verification here does not cover that browser proposal.
+
+## Orchestra mode
+
+Choose **Orchestra** in the **Play your way** selector above the stage, then start the camera or switch to mouse input. Each pitch leads a diatonic harmony across synthesized strings, woodwinds, brass and bass. Lift your finger or pointer for higher harmonies, move sideways to pan the ensemble, and move faster into a new pitch for a louder attack. Arrow keys and touch input also work.
+
+Orchestra uses C major harmony for the major and pentatonic scales, and A minor harmony for the minor scale. These are browser-synthesized timbres, not recorded orchestral samples. Switch back to **Solo instrument** to return to your selected solo sound. Switching performance modes releases the previous notes; Stop, tracking loss and Reset also release every section.

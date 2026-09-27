@@ -7,7 +7,7 @@ export function collectUI(document) {
   const ids = ['stage', 'camera', 'overlay', 'lanes', 'welcome', 'tracking-hint',
     'status', 'input-label', 'start', 'stop', 'mode', 'reset', 'sound', 'scale',
     'scale-hint', 'volume', 'volume-value', 'mute', 'note', 'frequency', 'dynamics',
-    'meter', 'meter-fill', 'pan-dot', 'session-time', 'error', 'stage-help'];
+    'meter', 'meter-fill', 'pan-dot', 'session-time', 'error', 'stage-help', 'performance', 'performance-hint', 'ensemble', 'sound-label'];
   return Object.fromEntries(ids.map(id => {
     const element = document.getElementById(id);
     if (!element) throw new Error('Missing instrument element: ' + id);
@@ -34,7 +34,11 @@ export function createInstrumentView(ui) {
     ui['scale-hint'].textContent = SCALES[scale].hint;
   }
 
-  function renderControls({ state, mode }) {
+  function renderControls({ state, mode, performance = 'solo' }) {
+    const orchestra = performance === 'orchestra';
+    document.body.dataset.performance = performance;
+    ui.welcome.querySelector('h2').innerHTML = orchestra
+      ? 'An orchestra.<br>In your hands.' : 'A little movement.<br>A little magic.';
     document.body.dataset.running = String(state === 'running');
     ui.start.disabled = state !== 'idle';
     ui.stop.disabled = state === 'idle';
@@ -50,6 +54,7 @@ export function createInstrumentView(ui) {
     ui['stage-help'].textContent = mode === 'camera'
       ? 'Use one hand · Lift to go higher · Move sideways to pan · Move faster for louder notes'
       : 'Move your pointer to play · On touchscreens, drag · Arrow keys change pitch and pan · Escape stops';
+    if (orchestra) ui['stage-help'].textContent += ' · Each note leads a four-part harmony';
     ui.welcome.querySelector('p').innerHTML = mode === 'camera'
       ? 'Start your camera, then move your<br>index finger up and down to play.'
       : 'Press Start playing, then move your pointer.<br>You can also focus this area and use arrow keys.';
@@ -78,7 +83,15 @@ export function createInstrumentView(ui) {
     stage.paint(landmarks, mapped, time);
   }
 
-  function renderSettings({ scale, sound, volume, mute }) {
+  function renderSettings({ scale, sound, volume, mute, performance }) {
+    const orchestra = performance === 'orchestra';
+    ui.performance.value = performance;
+    ui.sound.hidden = orchestra;
+    ui.sound.disabled = orchestra;
+    ui['sound-label'].hidden = orchestra;
+    ui.ensemble.hidden = !orchestra;
+    ui['performance-hint'].textContent = orchestra
+      ? 'Conduct strings, woodwinds, brass & bass.' : 'One gesture. Your own melody.';
     ui.scale.value = scale;
     ui.sound.value = sound;
     ui.volume.value = String(volume);

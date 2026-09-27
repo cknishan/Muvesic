@@ -12,6 +12,7 @@ export class Synthesizer {
     this.master.connect(this.compressor);
     this.compressor.connect(this.context.destination);
     this.voice = null;
+    this.activeVoices = [];
     this.voices = new Set();
   }
 
@@ -26,21 +27,33 @@ export class Synthesizer {
     this.master.gain.setTargetAtTime(muted ? 0 : clamp(volume), this.context.currentTime, .02);
   }
 
-  play(midi, velocity, pan, sound) {
+  play(midi, velocity, pan, sound, arrangement = null) {
     this.release();
-    const voice = createVoice(this.context, this.master, midi, velocity, pan, sound);
-    this.voice = voice;
-    this.voices.add(voice);
+    const parts = arrangement || [{ midi, sound, level: 1, pan: 0 }];
+    for (const part of parts) {
+      const voice = createVoice(this.context, this.master, part.midi,
+        velocity * part.level, clamp(pan + part.pan, -1, 1), part.sound);
+      voice.panOffset = part.pan;
+      this.activeVoices.push(voice);
+      this.voices.add(voice);
+    }
+    this.voice = this.activeVoices[0];
   }
 
   pan(value) {
-    this.voice?.panner.pan.setTargetAtTime(clamp(value, -1, 1), this.context.currentTime, .025);
+    for (const voice of this.activeVoices) {
+      voice.panner.pan.setTargetAtTime(clamp(value + voice.panOffset, -1, 1), this.context.currentTime, .025);
+    }
   }
 
   release() {
-    const voice = this.voice;
-    if (!voice) return;
+    const active = this.activeVoices;
+    this.activeVoices = [];
     this.voice = null;
+    for (const voice of active) this.releaseVoice(voice);
+  }
+
+  releaseVoice(voice) {
     const now = this.context.currentTime;
     voice.gain.gain.cancelAndHoldAtTime(now);
     voice.gain.gain.setTargetAtTime(0, now, .025);

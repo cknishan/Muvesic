@@ -85,7 +85,7 @@ test('invalid settings are atomic and reset restores the default camera session'
   assert.deepEqual(h.session.read(), before);
   h.session.reset();
   assert.deepEqual(h.session.read(), { state: 'idle', mode: 'camera',
-    scale: 'pentatonic', sound: 'keys', volume: 65, muted: false });
+    performance: 'solo', scale: 'pentatonic', sound: 'keys', volume: 65, muted: false });
 });
 
 test('startup and playback failures return to idle and surface recovery text', async t => {
@@ -102,4 +102,23 @@ test('startup and playback failures return to idle and surface recovery text', a
   playing.input().onPoint(.5, .5, 100);
   assert.equal(playing.session.read().state, 'idle');
   assert.ok(playing.events.some(([name, message]) => name === 'showError' && /Audio playback stopped/.test(message)));
+});
+
+
+test('orchestra works in both inputs and switching back releases the ensemble', async t => {
+  for (const mouse of [true, false]) {
+    const h = sessionHarness();
+    t.after(() => h.session.dispose());
+    if (mouse) h.session.switchMode();
+    h.session.applySettings({ performance: 'orchestra' });
+    await h.session.start();
+    const play = time => mouse ? h.input().onPoint(.5, .5, time)
+      : h.trackers[0].onFrame(Array.from({ length: 21 }, () => ({ x: .5, y: .5 })), time);
+    play(100);
+    assert.equal(h.audioInstances[0].notes[0][4].length, 4);
+    h.session.applySettings({ performance: 'solo' });
+    assert.equal(h.audioInstances[0].released, 1);
+    play(200);
+    assert.equal(h.audioInstances[0].notes.at(-1).length, 4);
+  }
 });

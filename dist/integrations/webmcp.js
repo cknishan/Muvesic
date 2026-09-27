@@ -13,6 +13,7 @@ export function registerInstrumentTools(modelContext, session) {
       inputSchema: {
         type: 'object',
         properties: {
+          performance: { type: 'string', enum: ['solo', 'orchestra'] },
           scale: { type: 'string', enum: Object.keys(SCALES) },
           sound: { type: 'string', enum: SOUNDS },
           volume: { type: 'number', minimum: 0, maximum: 100 },

@@ -1,3 +1,4 @@
+import { arrangeOrchestra } from '../music/orchestra.js';
 import { MotionMapper } from '../music/motion-mapper.js';
 import { SCALES } from '../music/scales.js';
 import { Synthesizer } from '../audio.js';
@@ -31,7 +32,7 @@ export function createSession({
     onLost: loseTracking,
     onPitchStep: () => mapper.resetSmoothing(),
   });
-  const renderControls = () => view.renderControls({ state, mode });
+  const renderControls = () => view.renderControls({ state, mode, performance: settings.performance });
 
   function loseTracking() {
     if (tracking) {
@@ -54,7 +55,12 @@ export function createSession({
     view.showTrackingHint(false);
     view.setStatus(mode === 'camera' ? 'Hand tracked · Playing' : 'Mouse & keys · Playing');
     try {
-      if (mapped.trigger) audio.play(mapped.midi, mapped.velocity, mapped.pan, settings.sound);
+      if (mapped.trigger) {
+        if (settings.performance === 'orchestra') {
+          audio.play(mapped.midi, mapped.velocity, mapped.pan, settings.sound,
+            arrangeOrchestra(mapped.midi, settings.scale));
+        } else audio.play(mapped.midi, mapped.velocity, mapped.pan, settings.sound);
+      }
       else audio.pan(mapped.pan);
     } catch {
       fail(new Error('Audio playback stopped. Press Start to try again.'));
@@ -136,7 +142,7 @@ export function createSession({
 
   function applySettings(patch) {
     const next = validateSettings(patch, settings);
-    const changed = next.scale !== settings.scale || next.sound !== settings.sound;
+    const changed = next.performance !== settings.performance || next.scale !== settings.scale || next.sound !== settings.sound;
     settings = next;
     if (changed) {
       audio?.release();
@@ -145,8 +151,9 @@ export function createSession({
     }
     audio?.setVolume(settings.volume / 100, settings.mute);
     view.renderSettings(settings);
+    renderControls();
     if (changed) view.renderLanes(settings.scale);
-    return { scale: settings.scale, sound: settings.sound, volume: settings.volume, muted: settings.mute };
+    return { performance: settings.performance, scale: settings.scale, sound: settings.sound, volume: settings.volume, muted: settings.mute };
   }
 
   function switchMode() {
@@ -166,7 +173,7 @@ export function createSession({
   }
 
   function read() {
-    return { state, mode, scale: settings.scale, sound: settings.sound,
+    return { state, mode, performance: settings.performance, scale: settings.scale, sound: settings.sound,
       volume: settings.volume, muted: settings.mute };
   }
 

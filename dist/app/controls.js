@@ -8,6 +8,7 @@ export function bindControls(ui, session, { document, window }) {
   listen(ui.stop, 'click', () => session.stop());
   listen(ui.mode, 'click', () => session.switchMode());
   listen(ui.reset, 'click', () => session.reset());
+  listen(ui.performance, 'change', () => session.applySettings({ performance: ui.performance.value }));
   listen(ui.scale, 'change', () => session.applySettings({ scale: ui.scale.value }));
   listen(ui.sound, 'change', () => session.applySettings({ sound: ui.sound.value }));
   listen(ui.volume, 'input', () => session.applySettings({ volume: Number(ui.volume.value) }));

@@ -12,7 +12,7 @@ test('settings patches preserve omitted values and do not mutate their inputs', 
 
 test('settings reject malformed patches, unsupported options and invalid values', () => {
   for (const patch of [null, [], 'minor', { extra: 1 }, { scale: '__proto__' },
-    { sound: 'piano' }, { volume: NaN }, { volume: Infinity }, { volume: -1 },
+    { sound: 'piano' }, { performance: 'invalid' }, { volume: NaN }, { volume: Infinity }, { volume: -1 },
     { volume: 101 }, { volume: '65' }, { mute: 1 }]) {
     assert.throws(() => validateSettings(patch), /Invalid instrument settings/);
   }

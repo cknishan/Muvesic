@@ -23,3 +23,22 @@ test('mute and volume control the master gain, and pan updates sustained notes',
   synth.setVolume(.8,false);assert.equal(synth.master.gain.events.at(-1)[1],.8);
   synth.play(60,.5,0,'synth');synth.pan(-1);assert.equal(synth.voice.panner.pan.events.at(-1)[1],-1);
 });
+
+
+test('orchestra releases all sections on replacement, tracking loss and close', async () => {
+  const { arrangeOrchestra } = await import('../dist/music/orchestra.js');
+  const synth = new Synthesizer(Context);
+  await synth.start();
+  synth.play(60, .7, 0, 'keys', arrangeOrchestra(60, 'major'));
+  assert.equal(synth.activeVoices.length, 4);
+  assert.equal(synth.voices.size, 4);
+  const old = [...synth.context.oscillators];
+  synth.pan(1);
+  assert.ok(synth.activeVoices.every(v => v.panner.pan.events.at(-1)[1] <= 1));
+  synth.play(69, .5, 0, 'keys', arrangeOrchestra(69, 'minor'));
+  assert.ok(old.every(o => o.stopped && o.disconnected));
+  synth.release();
+  assert.equal(synth.voices.size, 0);
+  assert.equal(synth.activeVoices.length, 0);
+  await synth.close();
+});
