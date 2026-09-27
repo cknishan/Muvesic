@@ -25,9 +25,9 @@ The root music.js, audio.js and tracker.js files are compatibility exports. Exis
 
 ## Data flow and contracts
 
-1. Pointer/keyboard input produces normalized screen coordinates. Camera tracking produces raw MediaPipe landmarks; session.js mirrors fingertip x exactly once.
+1. Pointer/keyboard input produces normalized screen coordinates for the right-hand practice channel. Camera tracking produces raw MediaPipe landmarks for up to two hands; session.js assigns them to left/right channels by mirrored screen position and mirrors fingertip x exactly once.
 2. MotionMapper.update(x, y, time) accepts x/y in [0, 1] and monotonically increasing milliseconds. Top is high pitch. It returns a mapped note event, or null for invalid/stale timestamps.
-3. The session passes triggered MIDI notes, velocity and pan to Synthesizer. Held notes update pan without retriggering.
+3. The session passes triggered MIDI notes, velocity, pan and channel ID to Synthesizer. Held notes update pan without retriggering, and each channel releases independently.
 4. The view receives the same mapped event for the lane highlight, monitor and canvas. Raw landmarks remain unmirrored until drawn by the canvas renderer.
 
 Music functions have no DOM or hardware dependencies. Keep those calculations out of event handlers. Audio and camera modules own their hardware cleanup; presentation never starts or stops hardware.
@@ -40,7 +40,7 @@ Each session creates a fresh synthesizer and, in camera mode, a fresh HandTracke
 
 Camera startup uses withDeadline. Cancellation does not cancel the underlying browser promise: its dispose callback must release any stream or model that arrives after cancellation or timeout. Preserve this behavior when changing initialization.
 
-Settings patches are fully validated before state changes. Volume is a percent in the settings API (0–100), a fraction in audio (0–1). Settings input uses mute; read/applySettings results retain the existing muted field. Returned snapshots do not expose mutable session state. Changing scale or sound releases the current note and resets mapping; changing volume/mute updates master gain.
+Settings patches are fully validated before state changes. Settings are nested by `left` and `right` channel. Volume is a percent in the settings API (0–100), a fraction in audio (0–1). Settings input uses mute; read/applySettings results retain the existing muted field. Returned snapshots do not expose mutable session state. Changing a channel's scale or sound releases that channel's current note and resets its mapping; changing volume/mute updates that channel gain.
 
 The input adapter receives callbacks and read functions; it does not import the session or manipulate its state. The view receives values and does not read controller state. Session factories for input, audio and tracking are injectable for deterministic tests.
 

@@ -24,10 +24,10 @@ export function sessionHarness({ audioStart, trackerStart } = {}) {
         [name, () => events.push(['input.' + name])]));
     },
     createAudio: () => {
-      const audio = { closed: 0, released: 0, notes: [], volumes: [],
+      const audio = { closed: 0, released: 0, releases: [], notes: [], volumes: [],
         start: () => audioStart?.() ?? Promise.resolve(),
         close: async () => { audio.closed++; },
-        release: () => { audio.released++; },
+        release: channel => { audio.released++; audio.releases.push(channel); },
         play: (...args) => audio.notes.push(args),
         pan: value => events.push(['pan', value]),
         setVolume: (...args) => audio.volumes.push(args),
