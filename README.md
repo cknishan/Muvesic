@@ -15,7 +15,7 @@ Open **http://localhost:5173** in a recent desktop Chrome or Edge browser. No np
 1. Click **Start camera** and allow camera access.
 2. Show one hand (either hand works), keeping the index fingertip visible.
 3. Lift to play higher notes; move sideways to pan; move faster for louder attacks.
-4. Choose Soft keys, Warm synth, Glass bell, or Round bass, and a pentatonic, major, or minor scale.
+4. Choose Soft keys, Warm synth, Glass bell, Round bass, or Plucked guitar, and a pentatonic, major, or minor scale.
 5. Stop releases the webcam, tracking model and audio context. Reset also restores defaults. Changing tabs automatically stops the session.
 
 **Try with mouse** provides a camera-free way to play using the same mapping and audio engine. Click Start playing, then move over the stage, drag on a touchscreen, or focus the stage and use arrow keys. Escape stops either mode. Touchscreen layout is supported, but webcam performance is targeted at desktop laptops.
