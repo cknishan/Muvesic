@@ -10,6 +10,12 @@ import { LIMBS, DEFAULT_SETTINGS, validateSettings } from './settings.js';
 
 const ENSEMBLE = 'ensemble';
 const HAND_CHANNELS = ['left', 'right'];
+/** Fingertip landmark indices on a MediaPipe hand. When all five are within
+ *  FINGER_CLUSTER_RADIUS of each other the hand is treated as a closed fist,
+ *  which mutes the active channels so the player can silence the instrument
+ *  without stopping the session. */
+const FINGERTIPS = Object.freeze([4, 8, 12, 16, 20]);
+const FINGER_CLUSTER_RADIUS = .18;
 /** Which channels each performance owns. Solo drives two hands; orchestra drives
  *  one conductor; body drives four limbs, one per tracked body part. */
 const PERFORMANCES = Object.freeze({
@@ -26,6 +32,10 @@ const ALL_CHANNELS = Object.freeze([...HAND_CHANNELS, ENSEMBLE, ...LIMBS]);
  * hands for a pose skeleton and turns each visible limb into its own voice, so a
  * full-body player sounds four channels at once. Either way only the active
  * channels own a voice.
+ *
+ * The hand-based performances also watch for a closed fist: when every fingertip
+ * collapses to a small cluster, the active channels are released so the player
+ * can silence the instrument without leaving the session.
  */
 export function createSession({
   view, video, createInput,
@@ -193,6 +203,36 @@ export function createSession({
     if (state === 'running') view.setStatus(geometry.status());
   }
 
+  /** A hand is a closed fist when every fingertip lies within FINGER_CLUSTER_RADIUS
+   *  of every other. Used to silence the active voices without leaving the session. */
+  function fingertipsClustered(hand) {
+    const tips = FINGERTIPS.map(index => hand?.[index]);
+    if (tips.some(point => !point || !Number.isFinite(point.x) || !Number.isFinite(point.y))) return false;
+    for (let i = 0; i < tips.length; i++) {
+      for (let j = i + 1; j < tips.length; j++) {
+        if (Math.hypot(tips[i].x - tips[j].x, tips[i].y - tips[j].y) > FINGER_CLUSTER_RADIUS) {
+          return false;
+        }
+      }
+    }
+    return true;
+  }
+
+  /** Silence every hand and ensemble channel at once. The closed-fist gesture on
+   *  the conductor hand in orchestra mode, or any hand in solo mode, calls this.
+   *  Body mode has its own channels and is not silenced by a hand gesture. */
+  function muteHandChannels(message = 'Fingers closed · Sound muted') {
+    const channels = settings.performance === 'orchestra' ? [ENSEMBLE] : HAND_CHANNELS;
+    for (const channel of channels) {
+      audio?.release(channel);
+      voices[channel].reset();
+      view.clearVisual(channel);
+      tracking[channel] = false;
+    }
+    view.showTrackingHint(false);
+    if (state === 'running') view.setStatus(message);
+  }
+
   function handsByChannel(hands) {
     const visible = hands.filter(hand => hand?.[8]).sort((a, b) => (1 - a[8].x) - (1 - b[8].x));
     if (visible.length === 0) return {};
@@ -268,10 +308,13 @@ export function createSession({
           if (settings.performance === 'orchestra') {
             const hand = conductorOf(hands, previousConductorX);
             previousConductorX = conductorX(hand);
-            if (hand) {
-              // Mirror input once to match the displayed video. Drawing mirrors raw landmarks.
-              playPoint(ENSEMBLE, 1 - hand[8].x, hand[8].y, time, hand);
-            } else loseTracking(ENSEMBLE);
+            if (!hand) { loseTracking(ENSEMBLE); return; }
+            // A closed fist on the conductor's hand mutes the ensemble. Anywhere
+            // else the fist is just the player holding still, and we still let
+            // the conductor's index finger drive the ensemble.
+            if (fingertipsClustered(hand)) { muteHandChannels(); return; }
+            // Mirror input once to match the displayed video. Drawing mirrors raw landmarks.
+            playPoint(ENSEMBLE, 1 - hand[8].x, hand[8].y, time, hand);
             return;
           }
           const channels = handsByChannel(hands);
@@ -279,6 +322,14 @@ export function createSession({
             const landmarks = channels[channel];
             if (!landmarks) {
               loseTracking(channel);
+            } else if (fingertipsClustered(landmarks)) {
+              // A fist on one hand mutes just that hand's voice. The other hand
+              // keeps playing if it is still open, which lets the player shape
+              // two voices independently.
+              audio?.release(channel);
+              voices[channel].reset();
+              view.clearVisual(channel);
+              tracking[channel] = false;
             } else {
               // Mirror input once to match the displayed video. Drawing mirrors raw landmarks.
               playPoint(channel, 1 - landmarks[8].x, landmarks[8].y, time, landmarks);

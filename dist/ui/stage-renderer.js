@@ -110,11 +110,13 @@ export function createStageRenderer(canvas) {
     if (performance !== 'body') drawTrail(trails.get(channel) || [], width, height, color);
   }
 
-  /** Pick the first visual that has landmarks, so the body skeleton is drawn
-   *  once even though four limb paints all carry the same pose. */
-  function skeletonFor() {
-    for (const visual of visuals.values()) if (visual.landmarks) return visual;
-    return null;
+  /** Hands get one skeleton per visual; body mode draws one shared skeleton
+   *  because every limb paint carries the same pose. */
+  function skeletonsFor() {
+    const list = [...visuals.values()].filter(visual => visual.landmarks);
+    if (list.length === 0) return [];
+    if (list[0].performance === 'body') return [list[0]];
+    return list;
   }
 
   function redrawAll() {
@@ -127,11 +129,11 @@ export function createStageRenderer(canvas) {
     }
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, width, height);
-    const skeleton = skeletonFor();
-    if (skeleton) {
-      const body = skeleton.performance === 'body';
-      drawSkeleton(skeleton.landmarks, body ? BODY_BONES : CONNECTIONS,
-        body ? BODY_JOINTS : HAND_JOINTS, width, height, colorFor(skeleton.channel, skeleton.performance));
+    for (const visual of skeletonsFor()) {
+      const color = colorFor(visual.channel, visual.performance);
+      const body = visual.performance === 'body';
+      drawSkeleton(visual.landmarks, body ? BODY_BONES : CONNECTIONS,
+        body ? BODY_JOINTS : HAND_JOINTS, width, height, color);
     }
     for (const visual of visuals.values()) drawVisual(visual, width, height);
   }

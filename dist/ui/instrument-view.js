@@ -23,6 +23,8 @@ const HINTS = {
   orchestra: 'One hand leads the whole ensemble.',
   body: 'Your whole body is the instrument. Arms and legs each have their own sound.',
 };
+const HEADINGS = { solo: 'Right hand', orchestra: 'Ensemble', body: 'Body' };
+const EYEBROWS = { solo: 'RIGHT NOTE', orchestra: 'ENSEMBLE NOTE', body: 'BODY NOTE' };
 const STAGE_HELP = {
   solo: 'Use two hands · Left and right sides control separate sounds · Lift to go higher',
   orchestra: 'One hand conducts · Lift for higher harmonies · Move sideways to pan the ensemble',
@@ -216,10 +218,12 @@ export function createInstrumentView(ui) {
     ui.ensemble.hidden = !isOrchestra;
     ui.limbs.hidden = !isBody;
     ui['posture-row'].hidden = !isBody && !isOrchestra;
+    // The right-hand panel keeps the same DOM across performances, so the heading
+    // and eyebrow are rewritten in place rather than swapped with markup.
+    ui['conductor-heading'].textContent = HEADINGS[performance] ?? HEADINGS.solo;
+    ui['conductor-eyebrow'].textContent = EYEBROWS[performance] ?? EYEBROWS.solo;
 
     if (isOrchestra) {
-      ui['conductor-heading'].textContent = 'Ensemble';
-      ui['conductor-eyebrow'].textContent = 'ENSEMBLE NOTE';
       ui['ensemble-title'].textContent = SOLO_COPY.title;
       ui['ensemble-copy'].textContent = SOLO_COPY.copy;
       clearSectionNotes();
