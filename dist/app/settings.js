@@ -1,6 +1,6 @@
 import { SCALES } from '../music/scales.js';
 
-export const SOUNDS = Object.freeze(['keys', 'synth', 'bell']);
+export const SOUNDS = Object.freeze(['keys', 'synth', 'bell', 'bass']);
 export const DEFAULT_SETTINGS = Object.freeze({
   scale: 'pentatonic', sound: 'keys', volume: 65, mute: false,
 });

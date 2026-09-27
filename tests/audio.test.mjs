@@ -5,9 +5,9 @@ class Param{value=0;events=[];setTargetAtTime(...a){this.events.push(['target',.
 class Node{gain=new Param();pan=new Param();frequency=new Param();connect(){}disconnect(){this.disconnected=true;}start(){this.started=true;}stop(){this.stopped=true;this.onended?.();}}
 class Context{currentTime=0;state='suspended';destination=new Node();oscillators=[];createGain(){return new Node();}createDynamicsCompressor(){return new Node();}createStereoPanner(){return new Node();}createBiquadFilter(){return new Node();}createOscillator(){const n=new Node();this.oscillators.push(n);return n;}async resume(){this.state='running';}async close(){this.state='closed';}}
 test('all instruments generate oscillators, envelope and correct tuning',async()=>{
-  for(const sound of ['keys','synth','bell']){
+  for(const sound of ['keys','synth','bell','bass']){
     const synth=new Synthesizer(Context);await synth.start();synth.play(69,.5,1,sound);
-    assert.equal(synth.voice.oscillators[0].oscillator.frequency.value,440);
+    assert.equal(synth.voice.oscillators[0].oscillator.frequency.value,sound==='bass'?220:440);
     assert.equal(synth.voice.panner.pan.value,1);
     assert.ok(synth.voice.gain.gain.events.some(e=>e[0]==='attack'));
     assert.ok(synth.context.oscillators.every(o=>o.started));await synth.close();
