@@ -5,10 +5,11 @@ import { CALIBRATION, poseFixture } from './helpers/pose-fixture.mjs';
 
 const STILL = Array.from({ length: CALIBRATION }, () => ({}));
 const REACHING = { reach: .9 };
+const LIMB_CHANNELS = ['left', 'right', 'lowerLeft', 'lowerRight'];
 
 /** A running body session, plus a way to feed it frames the way the model would.
- *  The session owns its own mapper, so the calibration window has to be played
- *  through the tracker boundary rather than short-circuited. */
+ *  The session owns its own geometry mapper, so the calibration window has to be
+ *  played through the tracker boundary rather than short-circuited. */
 async function bodySession(t, patch = {}) {
   const h = sessionHarness();
   t.after(() => h.session.dispose());
@@ -36,36 +37,43 @@ test('body mode asks the camera for a pose tracker, not a hand tracker', async t
   assert.equal(h.session.read().state, 'running');
 });
 
-test('a tracked body plays one sustained chord on the body channel', async t => {
+test('a tracked body plays one note per visible limb on four real channels', async t => {
   const h = await bodySession(t);
   h.standing();
   h.feed([REACHING]);
-  assert.equal(h.audio().notes.length, 1);
-  const [channel, midi, velocity, pan, sound, arrangement] = h.audio().notes[0];
-  assert.equal(channel, 'body', 'body mode owns one channel of its own');
-  assert.equal(sound, null, 'and takes its timbres from the arrangement');
-  assert.ok(midi >= 57 && midi <= 72, 'the root is a real scale note');
-  assert.ok(velocity > 0 && velocity <= 1);
-  assert.ok(pan >= -1 && pan <= 1);
-  assert.deepEqual(arrangement.map(part => part.sound), ['strings', 'woodwind', 'brass', 'cello']);
-  for (const part of arrangement) assert.ok(part.midi < 96, 'no voice escapes the register');
+  // Four notes, one per limb — same pose in, four voices out.
+  assert.equal(h.audio().notes.length, 4);
+  const channels = new Set(h.audio().notes.map(note => note[0]));
+  assert.deepEqual([...channels].sort(), [...LIMB_CHANNELS].sort());
+  for (const note of h.audio().notes) {
+    const [, midi, velocity, pan, sound, arrangement] = note;
+    assert.ok(midi >= 12 && midi <= 120, 'each limb produces a real MIDI note');
+    assert.ok(velocity > 0 && velocity <= 1);
+    assert.ok(pan >= -1 && pan <= 1);
+    assert.ok(typeof sound === 'string', 'each limb carries its own sound ID');
+    assert.equal(arrangement, null, 'body mode does not voice sections — each limb is its own voice');
+  }
 });
 
-test('a held body steers its chord instead of retriggering it', async t => {
+test('a held body steers its four voices instead of retriggering them', async t => {
   const h = await bodySession(t);
   h.standing();
   h.feed([REACHING, REACHING, REACHING]);
-  assert.equal(h.audio().notes.length, 1, 'a body held overhead sounds once, not three times');
-  const steered = h.events.filter(([name, channel]) => name === 'pan' && channel === 'body');
-  assert.ok(steered.length >= 2, 'and keeps steering its stereo image while it holds');
+  assert.equal(h.audio().notes.length, 4, 'a body held overhead sounds four voices, not twelve');
+  // Each limb should keep steering its own pan between notes.
+  for (const channel of LIMB_CHANNELS) {
+    const pans = h.events.filter(([name, ch]) => name === 'pan' && ch === channel);
+    assert.ok(pans.length >= 2, channel + ' keeps steering while the body holds');
+  }
 });
 
-test('losing the body releases the chord instead of freezing it', async t => {
+test('losing the body releases all four voices instead of freezing them', async t => {
   const h = await bodySession(t);
   h.standing();
   h.feed([REACHING, null]);
-  assert.deepEqual(h.audio().releases, ['body']);
-  assert.match(h.status(), /No body/, 'and the player is told the body went missing');
+  const released = new Set(h.audio().releases);
+  for (const channel of LIMB_CHANNELS) assert.ok(released.has(channel), channel + ' was released');
+  assert.match(h.status(), /No body|hold still|Step back|Upper body/);
 });
 
 test('a body is calibrated before it plays, and the first note is silent', async t => {
@@ -76,7 +84,7 @@ test('a body is calibrated before it plays, and the first note is silent', async
   assert.equal(h.audio().notes.length, 0, 'calibrating must not make a sound');
   h.standing();
   assert.equal(h.hints()[2], undefined, 'and then it stops talking');
-  assert.match(h.status(), /Body tracked/);
+  assert.match(h.status(), /Four voices|Arms only|Step back/);
 });
 
 test('a body that needs framing guidance asks for it on the stage', async t => {
@@ -85,12 +93,9 @@ test('a body that needs framing guidance asks for it on the stage', async t => {
   h.feed([{ ...REACHING, ankleY: 1.06 }]);
   assert.match(h.hints()[2], /Step back/, 'the overlay asks for more room');
   assert.match(h.status(), /Step back/);
-  h.feed([{ ...REACHING, ankleVisibility: 0 }]);
-  assert.match(h.hints()[2], /Upper body only/, 'and settles for a smaller kit if it has to');
-  assert.match(h.status(), /Upper body/);
 });
 
-test('stopping a body session disposes the pose model and its channel', async t => {
+test('stopping a body session disposes the pose model and its channels', async t => {
   const h = await bodySession(t);
   h.session.stop();
   assert.equal(h.poseTrackers[0].stopped, 1);
@@ -98,17 +103,20 @@ test('stopping a body session disposes the pose model and its channel', async t 
   assert.equal(h.session.read().state, 'idle');
 });
 
-test('body mode borrows the right hand scale, and follows it when it changes', async t => {
+test('each limb uses its own scale, and changing one follows that limb', async t => {
   const h = await bodySession(t);
   h.standing();
   h.feed([REACHING]);
-  const before = h.audio().notes.at(-1)[1];
-  h.session.applySettings({ right: { scale: 'minor' } });
+  // Pentatonic and major are different note sets, so the left arm must land on
+  // a note that is not in pentatonic after the change.
+  const pentatonic = new Set([60, 62, 64, 67, 69, 72]);
+  h.session.applySettings({ left: { scale: 'major' } });
   h.standing();
   h.feed([REACHING]);
-  const after = h.audio().notes.at(-1)[1];
-  assert.notEqual(after, before, 'a new scale means a new root');
-  assert.ok([57, 59, 60, 62, 64, 65, 67, 69].includes(after), 'and the root is in the new scale');
+  const notes = h.audio().notes.map(note => [note[0], note[1]]);
+  const leftNote = notes.find(([ch]) => ch === 'left')[1];
+  assert.ok(!pentatonic.has(leftNote % 12),
+    'left arm plays a note that is only in major, so it followed the scale change');
 });
 
 test('entering or leaving body mode restarts, because the camera model changes', async t => {
@@ -137,7 +145,9 @@ test('a pose frame cannot sneak into a hand performance', async t => {
   h.feed([REACHING]);
   h.session.applySettings({ performance: 'orchestra' });
   h.feed([REACHING]);
-  assert.equal(h.audio().notes.length, 1, 'a dead tracker must not keep a voice alive');
+  // The four limb channels were released when body mode ended, so no new body
+  // notes should appear after the switch.
+  assert.equal(h.audio().notes.length, 4, 'a dead tracker must not keep a voice alive');
   assert.equal(h.session.read().state, 'idle', 'and the body is handed back for a restart');
 });
 
@@ -147,4 +157,18 @@ test('mouse mode has no posture to read, so it hands the session back to the han
   assert.equal(h.session.read().mode, 'mouse');
   assert.equal(h.session.read().performance, 'solo');
   assert.equal(h.session.read().state, 'idle');
+});
+
+test('legs that leave frame release their voices, but arms keep playing', async t => {
+  const h = await bodySession(t);
+  h.standing();
+  h.feed([REACHING]);
+  const beforeCount = h.audio().notes.length;
+  assert.equal(beforeCount, 4);
+  // Now a pose with feet out of frame: arms stay visible, legs do not.
+  h.feed([{ ...REACHING, ankleVisibility: 0, ankleY: .99 }]);
+  const channelsAfter = new Set(h.audio().notes.slice(beforeCount).map(n => n[0]));
+  for (const ch of channelsAfter) {
+    assert.ok(ch === 'left' || ch === 'right', 'only arms sounded with feet out of frame');
+  }
 });

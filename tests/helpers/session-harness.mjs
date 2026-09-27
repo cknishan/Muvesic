@@ -21,8 +21,10 @@ export function sessionHarness({ audioStart, trackerStart } = {}) {
     view, video: {},
     createInput: handlers => {
       callbacks = handlers;
-      return Object.fromEntries(['start', 'stop', 'dispose'].map(name =>
-        [name, () => events.push(['input.' + name])]));
+      // The session's input contract: handlers is what the session calls; start,
+      // stop and dispose are what tests call to control the input loop.
+      return Object.assign(Object.fromEntries(['start', 'stop', 'dispose'].map(name =>
+        [name, () => events.push(['input.' + name])])), handlers);
     },
     createAudio: () => {
       const audio = { closed: 0, released: 0, releases: [], notes: [], volumes: [],

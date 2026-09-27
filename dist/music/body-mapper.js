@@ -94,8 +94,8 @@ export class BodyMapper {
     const posture = this.classifier.update(features, motion);
     this.posture = posture.id;
     this.strength = posture.strength;
-    return { limbs, posture: posture.id, strength: posture.strength,
-      hint: this.hint(), status: this.status() };
+    return { limbs, posture: posture.id, strength: posture.strength, lean: features.lean,
+      hint: this.hint(), status: this.status(), calibrated: true };
   }
 
   /** One limb's screen position: mirrored x so left is left, lane y so the
@@ -131,7 +131,7 @@ export class BodyMapper {
   /** A calibration frame: no per-limb data yet, but the overlay and posture
    *  readout stay live so the player can see the stage is working. */
   resting() {
-    return { limbs: [], posture: this.posture, strength: 0,
-      hint: this.hint(), status: this.status() };
+    return { limbs: [], posture: this.posture, strength: 0, lean: 0,
+      hint: this.hint(), status: this.status(), calibrated: this.calibrated };
   }
 }

@@ -12,10 +12,13 @@ export const DEFAULT_CHANNEL_SETTINGS = Object.freeze({
   scale: 'pentatonic', sound: 'keys', volume: 65, mute: false, octave: 0,
 });
 const DEFAULT_LIMB_SETTINGS = Object.freeze({
-  left: Object.freeze({ ...DEFAULT_CHANNEL_SETTINGS, sound: 'bell', volume: 70 }),
-  right: Object.freeze({ ...DEFAULT_CHANNEL_SETTINGS, sound: 'keys', volume: 70 }),
-  lowerLeft: Object.freeze({ ...DEFAULT_CHANNEL_SETTINGS, sound: 'bass', volume: 55, octave: -12 }),
-  lowerRight: Object.freeze({ ...DEFAULT_CHANNEL_SETTINGS, sound: 'guitar', volume: 55, octave: -12 }),
+  // One sound across all four limbs so the player hears a single band with four
+  // voices. The octaves spread the limbs across the instrument so they don't
+  // collide on the same note; legs sit low and arms sit high.
+  left: Object.freeze({ ...DEFAULT_CHANNEL_SETTINGS, sound: 'bell' }),
+  right: Object.freeze({ ...DEFAULT_CHANNEL_SETTINGS, sound: 'bell', octave: 12 }),
+  lowerLeft: Object.freeze({ ...DEFAULT_CHANNEL_SETTINGS, sound: 'bell', octave: -24 }),
+  lowerRight: Object.freeze({ ...DEFAULT_CHANNEL_SETTINGS, sound: 'bell', octave: -12 }),
 });
 export const DEFAULT_SETTINGS = Object.freeze({
   performance: 'solo',

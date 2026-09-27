@@ -140,7 +140,7 @@ export function createSession({
         ...limb,
         ...voices[limb.channel].update(limb.x, limb.y, time),
       })),
-      frame.posture, frame.strength);
+      frame.posture, frame.strength, frame.lean);
     let any = false;
     for (const event of voiced) {
       if (!event) continue;
@@ -171,7 +171,10 @@ export function createSession({
       }
       view.renderNote(channel, { ...event, midi }, pose, time, null);
     }
-    if (!any) loseTrackingForBody();
+    // Only release the four voices if the body is calibrated but no limb was
+    // visible. During calibration the mapper returns an empty limb list on
+    // purpose; resetting the geometry then would trap the player in calibration.
+    if (!any && frame.limbs.length > 0) loseTrackingForBody();
   }
 
   /** Body mode's analogue of losing a hand: release every limb that was sounding. */
@@ -247,10 +250,11 @@ export function createSession({
     try {
       ownAudio = createAudio();
       audio = ownAudio;
-      for (const channel of ALL_CHANNELS) {
+      // Set the volume for every channel that has its own settings row. The
+      // ensemble borrows the right hand's mix, so it shares the same volume.
+      for (const channel of [...HAND_CHANNELS, ...LIMBS]) {
         audio.setVolume(settings[channel].volume / 100, settings[channel].mute, channel);
       }
-      // Orchestra ignores per-hand sounds and borrows the right hand's mix.
       audio.setVolume(...masterVolume(), ENSEMBLE);
       await ownAudio.start();
       if (token !== generation) {
@@ -304,7 +308,7 @@ export function createSession({
         input.start();
       }
     } catch (error) {
-      if (token !== generation && error.name !== 'AbortError') fail(error);
+      if (token === generation && error.name !== 'AbortError') fail(error);
     }
   }
 
@@ -317,15 +321,17 @@ export function createSession({
     if (performanceChanged && needsPoseTracker(next.performance) !== needsPoseTracker(settings.performance)) {
       stop('Ready when you are');
     }
-    // Each channel that changed its scale needs its mapper retuned, and the
-    // ensemble still borrows the right hand's scale.
+    // Each channel that changed its scale needs its mapper retuned. The ensemble
+    // does not have its own settings row — it borrows the right hand's scale —
+    // so it only needs a retune when the right hand changes scale.
     const scaleChanged = {};
-    for (const channel of ALL_CHANNELS) {
+    for (const channel of LIMBS) {
       scaleChanged[channel] = next[channel].scale !== settings[channel].scale;
     }
+    scaleChanged[ENSEMBLE] = next.right.scale !== settings.right.scale;
     const sounding = trackedChannels();
     settings = next;
-    const toRelease = performanceChanged ? sounding : ALL_CHANNELS.filter(channel =>
+    const toRelease = performanceChanged ? sounding : [...HAND_CHANNELS, ...LIMBS].filter(channel =>
       next[channel].scale !== settings[channel].scale || next[channel].sound !== settings[channel].sound);
     for (const channel of toRelease) {
       audio?.release(channel);
@@ -336,7 +342,7 @@ export function createSession({
       for (const voice of Object.values(voices)) voice.reset();
       geometry.reset();
     }
-    for (const channel of ALL_CHANNELS) {
+    for (const channel of [...HAND_CHANNELS, ...LIMBS]) {
       audio?.setVolume(settings[channel].volume / 100, settings[channel].mute, channel);
     }
     if (audio) audio.setVolume(...masterVolume(), ENSEMBLE);
@@ -371,10 +377,13 @@ export function createSession({
 
   function readSettings() {
     const snapshot = { performance: settings.performance };
-    for (const channel of ALL_CHANNELS) {
+    for (const channel of LIMBS) {
       const { scale, sound, volume, mute, octave } = settings[channel];
       snapshot[channel] = { scale, sound, volume, muted: mute, octave };
     }
+    // The ensemble borrows the right hand's settings, so its snapshot is the
+    // same fields under a different name.
+    snapshot[ENSEMBLE] = { ...snapshot.right };
     return snapshot;
   }
 

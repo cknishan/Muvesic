@@ -4,4 +4,4 @@ export { clamp } from './shared/math.js';
 export { frequency, noteName } from './music/notes.js';
 export { MotionMapper, pitchIndex } from './music/motion-mapper.js';
 export { BodyMapper } from './music/body-mapper.js';
-export { arrangeOrchestra, arrangeBody } from './music/orchestra.js';
+export { applyPosture, arrangeOrchestra } from './music/orchestra.js';

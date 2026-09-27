@@ -11,7 +11,7 @@ test('mouse mode plays, releases on input loss, and stops its resources', async 
   assert.equal(h.trackers.length, 0);
   assert.ok(h.events.some(([name]) => name === 'input.start'));
   h.input().onPoint(0, 0, 100);
-  assert.deepEqual(h.audioInstances[0].notes[0], ['right', 72, .24, -1, 'keys', null]);
+  assert.deepEqual(h.audioInstances[0].notes[0], ['right', 72, .24, -1, 'bell', null]);
   h.input().onLost();
   assert.equal(h.audioInstances[0].released, 1);
   h.input().onPoint(1, 1, 200);
@@ -86,8 +86,11 @@ test('invalid settings are atomic and reset restores the default camera session'
   assert.deepEqual(h.session.read(), before);
   h.session.reset();
   assert.deepEqual(h.session.read(), { state: 'idle', mode: 'camera', performance: 'solo',
-    left: { scale: 'pentatonic', sound: 'bass', volume: 65, muted: false },
-    right: { scale: 'pentatonic', sound: 'keys', volume: 65, muted: false } });
+    left: { scale: 'pentatonic', sound: 'bell', volume: 65, muted: false, octave: 0 },
+    right: { scale: 'pentatonic', sound: 'bell', volume: 65, muted: false, octave: 12 },
+    lowerLeft: { scale: 'pentatonic', sound: 'bell', volume: 65, muted: false, octave: -24 },
+    lowerRight: { scale: 'pentatonic', sound: 'bell', volume: 65, muted: false, octave: -12 },
+    ensemble: { scale: 'pentatonic', sound: 'bell', volume: 65, muted: false, octave: 12 } });
 });
 
 test('camera mode maps two screen-side hands to independent instruments', async t => {
@@ -97,7 +100,7 @@ test('camera mode maps two screen-side hands to independent instruments', async 
   const left = Array.from({ length: 21 }, () => ({ x: .85, y: .5 }));
   const right = Array.from({ length: 21 }, () => ({ x: .15, y: .2 }));
   h.trackers[0].onFrame([right, left], 100);
-  assert.deepEqual(h.audioInstances[0].notes.map(note => [note[0], note[4]]), [['left', 'bass'], ['right', 'keys']]);
+  assert.deepEqual(h.audioInstances[0].notes.map(note => [note[0], note[4]]), [['left', 'bell'], ['right', 'bell']]);
   h.trackers[0].onFrame([right], 200);
   assert.ok(h.audioInstances[0].releases.includes('left'));
   assert.ok(!h.audioInstances[0].releases.includes('right'));
@@ -173,13 +176,13 @@ test('orchestra follows one conductor even when a second hand is visible', async
 test('orchestra borrows the right hand mix and keeps both hand settings', async t => {
   const h = sessionHarness();
   t.after(() => h.session.dispose());
-  h.session.applySettings({ performance: 'orchestra', right: { volume: 40, mute: true } });
+  h.session.applySettings({ performance: 'orchestra', right: { volume: 40, mute: true }, left: { sound: 'guitar' } });
   await h.session.start();
   const ensembleMix = args => args[2] === 'ensemble';
   assert.ok(h.audioInstances[0].volumes.some(args => ensembleMix(args) && args[0] === .4 && args[1] === true));
   assert.ok(h.audioInstances[0].volumes.some(args => args[2] === 'right' && args[0] === .4 && args[1] === true));
   assert.equal(h.session.read().right.volume, 40);
-  assert.equal(h.session.read().left.sound, 'bass', 'the left hand keeps its solo sound while orchestra is active');
+  assert.equal(h.session.read().left.sound, 'guitar', 'the left hand keeps its solo sound while orchestra is active');
   h.session.applySettings({ performance: 'solo' });
   assert.equal(h.session.read().right.muted, true, 'switching modes does not discard a choice');
   h.session.reset();

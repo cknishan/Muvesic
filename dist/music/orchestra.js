@@ -29,12 +29,15 @@ export function arrangeOrchestra(midi, scale) {
 /** Body mode's settled posture shapes the four limb voices the same way:
  *  arms-up lifts the two arm channels an octave, squat drops the two leg
  *  channels an octave, wide opens the stereo image across all four, and lean
- *  drags every voice sideways. A null posture is a no-op so the four voices
- *  keep their own settings. */
-export function applyPosture(frames, posture, strength) {
-  if (!posture) return frames;
+ *  drags every voice sideways by the body's torso tilt. A null posture is a
+ *  no-op so the four voices keep their own settings.
+ *
+ *  `lean` is the body-level tilt in [-1, 1] from the pose mapper; passing it
+ *  here keeps posture shaping free of geometry, and the mapper is the only
+ *  thing that knows what "lean" means for a particular player. */
+export function applyPosture(frames, posture, strength, lean = 0) {
   const s = clamp(strength, 0, 1);
-  const tilt = posture === 'lean' ? clamp(frames.reduce((max, f) => Math.max(max, Math.abs(f.pan)), 0), -1, 1) * .5 : 0;
+  const tilt = posture === 'lean' ? clamp(lean, -1, 1) * .5 : 0;
   const width = posture === 'wide' ? 1.5 : 1;
   return frames.map(frame => {
     let midi = frame.midi;

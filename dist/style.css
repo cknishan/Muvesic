@@ -7,3 +7,23 @@
 /* Orchestra is exclusive with two-hand solo: one conductor, one ensemble, so the
    section panel takes the place of the hand panels. */
 body[data-arranged=true] .hand-panel-left h3,body[data-arranged=true] .hand-panel-right h3{color:var(--muted)}body[data-arranged=true] .hand-panel-left .note-readout span:first-child,body[data-arranged=true] .hand-panel-right .note-readout span:first-child{color:var(--acid)}body[data-arranged=true] .hand-panel-right input[type=range]{accent-color:var(--acid)}body[data-arranged=true] .hand-panel-right .meter>span,body[data-arranged=true] .hand-panel-right .pan-track>span{background:var(--acid)}body[data-arranged=true] .hand-panel-right .mute-button[aria-pressed=true]{color:var(--acid);border-color:var(--acid)}body[data-arranged=true] .ensemble{margin-top:24px;border-top:1px solid var(--edge);padding-top:18px}body[data-arranged=true] .ensemble>div>span{color:var(--acid);border-color:var(--edge)}
+
+/* Body mode: four equal limb panels in a 2x2 grid (or stacked on narrow screens). */
+.limbs{display:grid;grid-template-columns:1fr 1fr;gap:18px;margin-bottom:18px;padding-bottom:18px;border-bottom:1px solid var(--edge)}
+.limbs>p{margin:0;grid-column:1/-1;font-size:.75rem;line-height:1.6;color:var(--muted)}
+.limb-panel{padding:14px;border:1px solid var(--edge);border-radius:10px;background:#1a1418}
+.limb-panel h3{font:600 .8125rem var(--display);margin:0 0 10px;color:var(--acid);letter-spacing:.5px;text-transform:uppercase}
+.limb-panel label{font-size:.7rem;color:var(--muted)}
+.limb-panel select,.limb-panel input[type=range]{width:100%}
+.limb-panel .note-readout span:first-child{color:var(--acid);font:500 1.4rem var(--display);letter-spacing:-.5px}
+.limb-panel .note-readout span:last-child{color:var(--muted);font-size:.75rem}
+.limb-panel .volume-label,.limb-panel .volume-row{display:flex;align-items:center;gap:10px;margin:8px 0 6px}
+.limb-panel .volume-row input{flex:1}
+.limb-panel .mute-button{padding:6px 10px;font-size:.75rem;border:1px solid var(--edge);border-radius:6px;background:transparent;color:var(--muted)}
+.limb-panel .mute-button[aria-pressed=true]{color:var(--acid);border-color:var(--acid)}
+.limb-panel .meter{height:4px;background:#2a2026;border-radius:2px;overflow:hidden;margin:6px 0}
+.limb-panel .meter>span{display:block;height:100%;background:var(--acid);width:0;transition:width .12s ease}
+.limb-panel .pan-track{position:relative;height:6px;background:#2a2026;border-radius:3px;margin-top:6px}
+.limb-panel .pan-track>span{position:absolute;top:-2px;width:8px;height:10px;background:var(--acid);border-radius:2px;left:50%;transform:translateX(-50%);transition:left .12s ease}
+.limb-panel .note-monitor .eyebrow{display:none}
+@media(max-width:760px){.limbs{grid-template-columns:1fr}}

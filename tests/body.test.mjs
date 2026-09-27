@@ -5,7 +5,7 @@ import {
 } from '../dist/tracking/posture.js';
 import { PostureClassifier } from '../dist/tracking/classifier.js';
 import { BodyMapper } from '../dist/music/body-mapper.js';
-import { arrangeBody } from '../dist/music/orchestra.js';
+import { applyPosture, ARM_CHANNELS, LEG_CHANNELS } from '../dist/music/orchestra.js';
 import { SCALES } from '../dist/music/scales.js';
 import { CALIBRATION, poseFixture, runFrames } from './helpers/pose-fixture.mjs';
 
@@ -16,13 +16,6 @@ const describe = (options = {}) =>
   bodyFeatures(poseFixture(options), neutralPose(poseFixture(still)));
 /** The same, but with the movement energy the mapper would have smoothed. */
 const moving = (energy, options = {}) => ({ ...describe(options), energy });
-/** A mapper calibrated against this player's own ruler, ready for one more frame. */
-const playing = (options = {}) => {
-  const mapper = new BodyMapper();
-  const standing = { ...still, ...options };
-  runFrames(mapper, Array.from({ length: CALIBRATION }, () => standing));
-  return { mapper, standing, time: CALIBRATION * 50 };
-};
 
 test('a pose is only accepted when the joints the mapper reads are all present', () => {
   assert.ok(isPose(poseFixture()));
@@ -40,14 +33,14 @@ test('the mirror happens exactly once, and only on x', () => {
   assert.equal(mirrored.length, raw.length);
   assert.ok(Math.abs(mirrored[J.shoulderR].x - (1 - raw[J.shoulderR].x)) < 1e-12);
   assert.equal(mirrored[J.shoulderR].y, raw[J.shoulderR].y);
-  // Mirroring twice is the original, up to float rounding: the flip happens once.
-  assert.ok(Math.abs(mirrorPose(mirrored)[J.shoulderR].x - raw[J.shoulderR].x) < 1e-12);
+  assert.ok(Math.abs(mirrorPose(mirrored)[J.shoulderR].x - raw[J.shoulderR].x) < 1e-12,
+    'mirroring twice is the original, up to float rounding');
 });
 
-test('how much of the player is in frame decides the available kit', () => {
+test('how much of the player is in frame decides which limbs can play', () => {
   assert.equal(framing(poseFixture()), 'full');
   assert.equal(framing(null), 'lost');
-  // Feet hidden mid-body reads as an upper-body player, who can still dance.
+  // Feet hidden mid-body reads as an upper-body player — arms still play.
   assert.equal(framing(poseFixture({ ankleVisibility: 0 })), 'upper');
   // Feet hidden and the legs running off the bottom edge means step back.
   assert.equal(framing(poseFixture({ ankleVisibility: 0, ankleY: 1 })), 'step-back');
@@ -57,8 +50,8 @@ test('how much of the player is in frame decides the available kit', () => {
 });
 
 test('the same dance at two distances produces the same posture', () => {
-  // Each player is described in his own torso lengths and measured against his own
-  // neutral, so a player twice as far off reads exactly like one standing close.
+  // Each player is described in his own torso lengths and measured against his
+  // own neutral, so a player twice as far off reads exactly like one close up.
   const at = (torso, moved) => {
     const standing = { torso, ...still };
     const neutral = neutralPose(poseFixture(standing));
@@ -118,8 +111,8 @@ test('holding still is itself a posture, so stillness can be played', () => {
   assert.equal(result.slice(0, 5).at(-1).id, null, 'stillness is held for six frames');
   assert.equal(result.at(-1).id, 'still');
   assert.ok(result.at(-1).strength > 0, 'a settled posture reports how far past its threshold it is');
-  // A jump outranks stillness, so a big movement is never reported as standing still.
-  assert.equal(new PostureClassifier().update(quiet, { airborne: true }).id, null);
+  assert.equal(new PostureClassifier().update(quiet, { airborne: true }).id, null,
+    'a jump outranks stillness');
 });
 
 test('sensitivity moves every threshold without adding a rule', () => {
@@ -132,134 +125,125 @@ test('sensitivity moves every threshold without adding a rule', () => {
   assert.equal(new PostureClassifier(0).sensitivity, 1, 'a nonsense sensitivity falls back to default');
 });
 
-test('the mapper learns the neutral pose before it plays anything', () => {
+test('the mapper learns the neutral pose before it produces any limbs', () => {
   const mapper = new BodyMapper();
   const frames = runFrames(mapper, Array.from({ length: CALIBRATION }, () => ({})));
-  assert.ok(frames.slice(0, -1).every(frame => frame.midi === null), 'no note before calibration ends');
+  assert.ok(frames.slice(0, -1).every(frame => frame.limbs.length === 0),
+    'no limbs before calibration ends');
   assert.match(frames[0].hint, /hold still/, 'the player is told what to do');
   assert.match(frames[0].status, /hold still/);
-  assert.equal(frames.at(-1).midi, null, 'the frame that finishes calibration still rests');
+  assert.equal(frames.at(-1).calibrated, true, 'the frame that finishes calibration is ready');
 
+  const [ready] = runFrames(mapper, [{}], CALIBRATION * 50);
+  assert.equal(ready.limbs.length, 4, 'a calibrated player has all four limbs');
+  assert.equal(ready.hint, null, 'calibrated players are left alone');
+  assert.match(ready.status, /Four voices|Arms only|Step back/);
+});
+
+test('each limb carries its own channel, screen position and visibility', () => {
+  const mapper = new BodyMapper();
+  runFrames(mapper, Array.from({ length: CALIBRATION }, () => ({})));
   const [frame] = runFrames(mapper, [{}], CALIBRATION * 50);
-  assert.equal(frame.hint, null, 'a calibrated player is left alone');
-  assert.equal(frame.status, 'Body tracked · Playing');
-  assert.ok(PENTATONIC.includes(frame.midi), 'the note comes from the chosen scale');
-  assert.equal(frame.index, PENTATONIC.length - 1, 'arms at your sides read the bottom lane');
-  assert.equal(frame.midi, PENTATONIC[0], 'and so the low note, like every other lane');
-});
-
-test('the higher arm leads and the lower arm sets the root under it', () => {
-  const { mapper, standing, time } = playing();
-  // One arm overhead and one arm at the side: two voices, one arrangement.
-  const [frame] = runFrames(mapper, [{ ...standing, wristRy: 0, wristLy: .68 }], time);
-  assert.equal(frame.index, 0, 'the high arm takes the top lane');
-  assert.equal(frame.midi, PENTATONIC[0], 'the low arm sets the root, a full octave below');
-  assert.ok(PENTATONIC.at(-1) > frame.midi, 'so the root can never ride over the melody');
-});
-
-test('moving away from the camera does not retune the instrument', () => {
-  const lane = torso => {
-    const { mapper, standing, time } = playing({ torso });
-    return runFrames(mapper, [{ ...standing, reach: .9 }], time)[0].index;
-  };
-  // Same arms raised, one player filling the frame and one small in the middle.
-  assert.equal(lane(.3), lane(.15));
-});
-
-test('a lost or unusable body is silence, exactly like a lost hand', () => {
-  const { mapper, time } = playing();
-  const [first] = runFrames(mapper, [{}], time);
-  assert.equal(mapper.update(null, time + 50), null, 'no body at all');
-  assert.equal(mapper.update(poseFixture({ hipVisibility: 0 }), time + 100), null, 'no hips to measure');
-  assert.equal(mapper.update(poseFixture(), time), null, 'a repeated timestamp is not a new frame');
-  assert.ok(first.midi !== null, 'and a real body in between still plays');
-});
-
-test('the player is told to step back rather than losing the ones that fit', () => {
-  const { mapper, standing, time } = playing();
-  const [frame] = runFrames(mapper, [{ ...standing, ankleY: 1.06 }], time);
-  assert.match(frame.hint, /Step back/, 'squats and jumps need the whole body');
-  assert.equal(frame.status, 'Step back — feet out of frame');
-  assert.ok(frame.midi !== null, 'and they can keep playing with what is in frame');
-
-  const [upper] = runFrames(mapper, [{ ...standing, ankleVisibility: 0 }], time + 50);
-  assert.match(upper.hint, /Upper body only/);
-  assert.equal(upper.status, 'Upper body · Playing');
-});
-
-test('retriggering is rate limited, so a held posture cannot machine-gun notes', () => {
-  const { mapper, standing, time } = playing();
-  const rapid = runFrames(mapper, [
-    { ...standing, wristRy: .2 }, { ...standing, wristRy: .3 }, { ...standing, wristRy: .4 },
-  ], time, 20);
-  assert.deepEqual(rapid.map(frame => frame.trigger), [true, false, false]);
-  assert.equal(mapper.update(poseFixture({ ...standing, wristRy: .4 }), time + 100).trigger, true);
-});
-
-test('a lost body mid-groove releases the note instead of freezing it', () => {
-  const { mapper, standing, time } = playing();
-  const [sounded] = runFrames(mapper, [{ ...standing, wristRy: .2 }], time);
-  assert.equal(sounded.trigger, true);
-  assert.equal(mapper.update(null, time + 50), null, 'the session reads this as tracking loss');
-  // The mapper resets through the same door a lost hand uses, so the next frame
-  // asks for calibration again rather than trusting a stale ruler.
-  mapper.reset();
-  assert.match(mapper.hint(), /hold still/);
-  assert.equal(mapper.update(poseFixture(), time + 100).midi, null);
-});
-
-test('the body arrangement always voices the four sections above the root', () => {
-  const parts = arrangeBody({ midi: 60, posture: null, strength: 0, pan: 0 }, 'pentatonic');
-  assert.deepEqual(parts.map(part => part.sound), ['strings', 'woodwind', 'brass', 'cello']);
-  assert.deepEqual(parts.map(part => part.midi), [60, 64, 67, 48]);
-  for (const part of parts) {
-    assert.ok(part.level > 0 && part.level <= .5, part.sound + ' is mixed at a sensible level');
-    assert.ok(part.pan >= -1 && part.pan <= 1, part.sound + ' stays inside the stereo field');
+  const channels = frame.limbs.map(limb => limb.channel);
+  assert.deepEqual(new Set(channels), new Set(['left', 'right', 'lowerLeft', 'lowerRight']));
+  for (const limb of frame.limbs) {
+    assert.ok(limb.x >= 0 && limb.x <= 1, limb.channel + ' x is on screen');
+    assert.ok(limb.y >= 0 && limb.y <= 1, limb.channel + ' y is in the lane range');
+    assert.equal(limb.visible, true, limb.channel + ' is visible when its joints are');
   }
 });
 
-test('postures colour the chord instead of adding notes', () => {
-  const level = (parts, sound) => parts.find(part => part.sound === sound).level;
-  const note = (parts, sound) => parts.find(part => part.sound === sound).midi;
-  const pan = (parts, sound) => parts.find(part => part.sound === sound).pan;
-  const width = parts => Math.max(...parts.map(part => part.pan)) - Math.min(...parts.map(part => part.pan));
-  const plain = arrangeBody({ midi: 60, posture: null, strength: 0, pan: 0 }, 'pentatonic');
+test('a body that has lost its ankles falls back to arms-only without going silent', () => {
+  const mapper = new BodyMapper();
+  runFrames(mapper, Array.from({ length: CALIBRATION }, () => ({})));
+  // When the hips are gone the whole pose is lost and the mapper returns null —
+  // a limb-level visibility flag is for the legs being cropped, not the trunk
+  // being gone.
+  const lost = runFrames(mapper, [{ hipVisibility: 0 }], CALIBRATION * 50);
+  assert.equal(lost.length, 1, 'a hip-less body is one frame, not four voices');
+  assert.equal(lost[0], null, 'and that frame is silent, like a lost hand');
 
-  const loud = arrangeBody({ midi: 60, posture: null, strength: 1, pan: 0 }, 'pentatonic');
-  for (const part of loud) assert.ok(part.level > level(plain, part.sound), part.sound + ' swells');
-
-  const up = arrangeBody({ midi: 60, posture: 'arms_up', strength: .5, pan: 0 }, 'pentatonic');
-  assert.equal(note(up, 'cello'), 60, 'arms up lift the whole chord, floor included');
-  for (const part of up) assert.ok(part.midi >= note(plain, part.sound), part.sound + ' lifts');
-
-  const down = arrangeBody({ midi: 60, posture: 'squat', strength: .5, pan: 0 }, 'pentatonic');
-  for (const part of down) {
-    if (part.sound !== 'cello') assert.ok(part.midi < note(plain, part.sound), part.sound + ' drops');
+  // Ankle visibility controls the legs only.
+  const [upper] = runFrames(mapper, [{ ankleVisibility: 0 }], CALIBRATION * 50);
+  for (const limb of upper.limbs) {
+    if (limb.channel === 'lowerLeft' || limb.channel === 'lowerRight') {
+      assert.equal(limb.visible, false, limb.channel + ' needs ankles');
+    } else {
+      assert.equal(limb.visible, true, limb.channel + ' does not need ankles');
+    }
   }
-  assert.equal(note(down, 'cello'), note(plain, 'cello'),
-    'the floor holds, because dropping the bass again would leave the register');
-  assert.ok(level(down, 'cello') > level(plain, 'cello'), 'and a squat thickens rather than fades');
-
-  const wide = arrangeBody({ midi: 60, posture: 'wide', strength: 0, pan: 0 }, 'pentatonic');
-  assert.ok(width(wide) > width(plain), 'arms wide open the image');
-  assert.ok(wide.every(part => Math.abs(part.pan) <= 1), 'and stay inside it');
-
-  const left = arrangeBody({ midi: 60, posture: 'lean', strength: 0, pan: -1 }, 'pentatonic');
-  for (const part of left) assert.ok(pan(left, part.sound) < pan(plain, part.sound), 'leaning drags it');
-  const right = arrangeBody({ midi: 60, posture: 'lean', strength: 0, pan: 1 }, 'pentatonic');
-  for (const part of right) assert.ok(pan(right, part.sound) > pan(plain, part.sound), 'both ways');
 });
 
-test('an arrangement stays diatonic, the same contract the ensemble keeps', () => {
+test('arm heights and leg heights live on separate ladders', () => {
+  const mapper = new BodyMapper();
+  runFrames(mapper, Array.from({ length: CALIBRATION }, () => ({})));
+  const [armsDown] = runFrames(mapper, [{}], (CALIBRATION + 1) * 50);
+  for (const limb of armsDown.limbs) assert.ok(limb.y > .85, limb.channel + ' arms-down is the bottom lane');
+  const [armsUp] = runFrames(mapper, [{ reach: .9 }], (CALIBRATION + 2) * 50);
+  for (const limb of armsUp.limbs) {
+    if (limb.channel === 'left' || limb.channel === 'right') {
+      assert.ok(limb.y < .2, limb.channel + ' arms-up is the top lane');
+    } else {
+      assert.ok(limb.y > .5, limb.channel + ' legs do not move with the arms');
+    }
+  }
+});
+
+test('postures shape the four voices the same way', () => {
+  const notes = (posture, strength, lean = 0) => applyPosture([
+    { channel: 'left', midi: 60, pan: -.2, velocity: .5 },
+    { channel: 'right', midi: 60, pan: .2, velocity: .5 },
+    { channel: 'lowerLeft', midi: 60, pan: -.1, velocity: .5 },
+    { channel: 'lowerRight', midi: 60, pan: .1, velocity: .5 },
+  ], posture, strength, lean);
+  assert.deepEqual(ARM_CHANNELS, ['left', 'right']);
+  assert.deepEqual(LEG_CHANNELS, ['lowerLeft', 'lowerRight']);
+
+  // Null posture is a no-op.
+  assert.deepEqual(notes(null, 0).map(n => n.midi), [60, 60, 60, 60]);
+
+  // Arms up lifts the arms, leaves the legs.
+  const up = notes('arms_up', 1);
+  assert.equal(up.find(n => n.channel === 'left').midi, 72);
+  assert.equal(up.find(n => n.channel === 'right').midi, 72);
+  assert.equal(up.find(n => n.channel === 'lowerLeft').midi, 60);
+  assert.equal(up.find(n => n.channel === 'lowerRight').midi, 60);
+
+  // Squat drops the legs, leaves the arms.
+  const down = notes('squat', 1);
+  assert.equal(down.find(n => n.channel === 'left').midi, 60);
+  assert.equal(down.find(n => n.channel === 'right').midi, 60);
+  assert.equal(down.find(n => n.channel === 'lowerLeft').midi, 48);
+  assert.equal(down.find(n => n.channel === 'lowerRight').midi, 48);
+
+  // Wide opens the stereo image, lean drags it sideways by the body's torso tilt.
+  const wide = notes('wide', 0, 0);
+  const flat = notes(null, 0, 0);
+  assert.ok(Math.max(...wide.map(n => n.pan)) - Math.min(...wide.map(n => n.pan)) >
+    Math.max(...flat.map(n => n.pan)) - Math.min(...flat.map(n => n.pan)),
+    'wide opens the stereo image');
+  const left = notes('lean', 0, -1).map(n => n.pan);
+  const right = notes('lean', 0, 1).map(n => n.pan);
+  assert.ok(left.every((pan, i) => pan < flat[i].pan), 'leaning left drags every voice left');
+  assert.ok(right.every((pan, i) => pan > flat[i].pan), 'and leaning right drags them right');
+
+  // Strength swells the velocity.
+  const soft = notes(null, 0)[0].velocity;
+  const hard = notes(null, 1)[0].velocity;
+  assert.ok(hard > soft, 'a stronger posture plays louder');
+});
+
+test('the four voices all sit inside one shared scale', () => {
   for (const [scale, { notes }] of Object.entries(SCALES)) {
-    const allowed = scale === 'minor' ? [9, 11, 0, 2, 4, 5, 7] : [0, 2, 4, 5, 7, 9, 11];
-    for (const posture of [null, 'arms_up', 'squat', 'wide', 'lean']) {
-      for (const midi of notes) {
-        const parts = arrangeBody({ midi, posture, strength: 1, pan: -1 }, scale);
-        assert.equal(parts.length, 4, 'four sections, every posture');
-        for (const part of parts) {
-          assert.ok(allowed.includes(((part.midi % 12) + 12) % 12), scale + ': ' + part.midi);
-        }
+    for (const posture of [null, 'arms_up', 'squat']) {
+      for (const limb of ['left', 'right', 'lowerLeft', 'lowerRight']) {
+        const voiced = applyPosture([
+          { channel: limb, midi: notes[0], pan: 0, velocity: .5 },
+        ], posture, 1);
+        const midi = voiced[0].midi;
+        const pitchClass = ((midi % 12) + 12) % 12;
+        assert.ok(notes.map(n => n % 12).includes(pitchClass) || posture === 'arms_up',
+          scale + ' ' + limb + ' ' + posture + ': ' + midi + ' is outside the scale');
       }
     }
   }

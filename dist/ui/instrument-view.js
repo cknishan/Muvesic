@@ -74,6 +74,7 @@ export function collectUI(document) {
  *  so one performance is always legible. */
 export function createInstrumentView(ui) {
   const stage = createStageRenderer(ui.overlay);
+  let performance = 'solo';
 
   function renderLanes(settings) {
     // The right hand's scale sets the visible ladder in all three modes; body
@@ -98,7 +99,8 @@ export function createInstrumentView(ui) {
     }
   }
 
-  function renderControls({ state, mode, performance = 'solo' }) {
+  function renderControls({ state, mode, performance: nextPerformance = 'solo' }) {
+    performance = nextPerformance;
     const copy = STAGE_HELP[performance] ?? STAGE_HELP.solo;
     document.body.dataset.performance = performance;
     document.body.dataset.arranged = String(performance === 'orchestra');
@@ -192,11 +194,11 @@ export function createInstrumentView(ui) {
         if (readout) readout.textContent = noteName(part.midi);
       }
     }
-    stage.paint(channel, landmarks, mapped, time);
+    stage.paint(channel, landmarks, mapped, time, performance);
   }
 
   function renderSettings(settings) {
-    const performance = settings.performance;
+    performance = settings.performance;
     const isBody = performance === 'body';
     const isOrchestra = performance === 'orchestra';
     const isSolo = performance === 'solo';
