@@ -9,7 +9,7 @@ export function registerInstrumentTools(modelContext, session) {
   const tools = [
     {
       name: 'configure_instrument',
-      description: 'Choose the solo or orchestra performance mode, and set each hand\'s scale, sound, volume and mute state. Does not start the camera or audio.',
+      description: 'Choose the solo, orchestra or body performance mode, and set each hand\'s scale, sound, volume and mute state. Does not start the camera or audio.',
       inputSchema: {
         type: 'object',
         properties: {

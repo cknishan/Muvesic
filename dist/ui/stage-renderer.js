@@ -1,30 +1,43 @@
+import { BODY_BONES, J } from '../tracking/posture.js';
+
 const CONNECTIONS = [
   [0, 1], [1, 2], [2, 3], [3, 4], [0, 5], [5, 6], [6, 7], [7, 8],
   [5, 9], [9, 10], [10, 11], [11, 12], [9, 13], [13, 14], [14, 15],
   [15, 16], [13, 17], [0, 17], [17, 18], [18, 19], [19, 20],
 ];
+/** Only the joints the body mapper reads, so the overlay stays legible instead of
+ * speckling the stage with 33 unlabelled points. */
+const BODY_JOINTS = Object.values(J);
+const HAND_JOINTS = CONNECTIONS.flat();
 
-/** Owns canvas drawing and trajectory history; never controls audio or tracking. */
+/** Owns canvas drawing and trajectory history; never controls audio or tracking.
+ * Landmarks arrive unmirrored and are mirrored here, so the skeleton lines up with
+ * the CSS-mirrored video.
+ */
 export function createStageRenderer(canvas) {
   const ctx = canvas.getContext('2d');
   const colors = {
     left: { line: '#c6f36b88', point: '#d9ff95', glow: '#c6f36b26' },
     right: { line: '#7cc7ff88', point: '#a8dcff', glow: '#7cc7ff26' },
     ensemble: { line: '#edc78388', point: '#f3dcae', glow: '#edc78326' },
+    body: { line: '#f79ad488', point: '#fdc4d8', glow: '#f79ad426' },
   };
   const visuals = new Map();
   const trails = new Map();
 
-  function drawHand(landmarks, width, height, color) {
+  function drawSkeleton(landmarks, bones, joints, width, height, color) {
     ctx.strokeStyle = color.line;
     ctx.lineWidth = 2;
-    for (const [a, b] of CONNECTIONS) {
+    for (const [a, b] of bones) {
+      if (!landmarks[a] || !landmarks[b]) continue;
       ctx.beginPath();
       ctx.moveTo((1 - landmarks[a].x) * width, landmarks[a].y * height);
       ctx.lineTo((1 - landmarks[b].x) * width, landmarks[b].y * height);
       ctx.stroke();
     }
-    for (const landmark of landmarks) {
+    for (const index of joints) {
+      const landmark = landmarks[index];
+      if (!Number.isFinite(landmark?.x)) continue;
       ctx.beginPath();
       ctx.arc((1 - landmark.x) * width, landmark.y * height, 3, 0, Math.PI * 2);
       ctx.fillStyle = color.point;
@@ -45,7 +58,11 @@ export function createStageRenderer(canvas) {
 
   function drawVisual({ channel, landmarks, point, time }, width, height) {
     const color = colors[channel] || colors.right;
-    if (landmarks) drawHand(landmarks, width, height, color);
+    if (landmarks) {
+      const body = channel === 'body';
+      drawSkeleton(landmarks, body ? BODY_BONES : CONNECTIONS,
+        body ? BODY_JOINTS : HAND_JOINTS, width, height, color);
+    }
     drawTrail(trails.get(channel) || [], width, height, color);
     ctx.beginPath();
     ctx.arc(point.x * width, point.y * height, 17, 0, Math.PI * 2);
