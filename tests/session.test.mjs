@@ -126,8 +126,9 @@ test('orchestra works in both inputs and switching back releases the ensemble', 
     if (mouse) h.session.switchMode();
     h.session.applySettings({ performance: 'orchestra' });
     await h.session.start();
+    const hand = Array.from({ length: 21 }, () => ({ x: .5, y: .5 }));
     const play = time => mouse ? h.input().onPoint(.5, .5, time)
-      : h.trackers[0].onFrame(Array.from({ length: 21 }, () => ({ x: .5, y: .5 })), time);
+      : h.trackers[0].onFrame([hand], time);
     play(100);
     const ensemble = h.audioInstances[0].notes[0];
     assert.equal(ensemble[0], 'ensemble', 'orchestra owns a single channel, not the two hands');
@@ -161,6 +162,12 @@ test('orchestra follows one conductor even when a second hand is visible', async
   assert.ok(h.audioInstances[0].notes[1][3] > .5, 'a second hand cannot steal the ensemble');
   h.trackers[0].onFrame([], 400);
   assert.ok(h.audioInstances[0].releases.includes('ensemble'));
+  assert.equal(h.session.read().state, 'running', 'losing the conductor must not stop the session');
+  // The hand comes back: the ensemble picks up again on the same running session.
+  h.trackers[0].onFrame([hand(.1, .5)], 500);
+  assert.equal(h.audioInstances[0].notes.length, 3, 'the ensemble returns when the hand does');
+  assert.equal(h.audioInstances[0].notes[2][0], 'ensemble');
+  assert.equal(h.audioInstances[0].notes[2][5].length, 4);
 });
 
 test('orchestra borrows the right hand mix and keeps both hand settings', async t => {

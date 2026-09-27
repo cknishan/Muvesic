@@ -10,7 +10,7 @@ Muvesic uses native JavaScript ES modules, browser APIs and a dependency-free No
 | Session | dist/app/session.js | Session state, resource ownership, startup cancellation, note dispatch |
 | Settings | dist/app/settings.js | Defaults, sound IDs, pure settings validation |
 | Controls | dist/app/controls.js | Buttons, selectors, Escape, visibility and page lifecycle events |
-| DOM presentation | dist/ui/instrument-view.js | DOM IDs, controls, lanes, note monitor, status and errors |
+| DOM presentation | dist/ui/instrument-view.js | DOM IDs, controls, lanes, note monitor, section readouts, status and errors |
 | Canvas | dist/ui/stage-renderer.js | Mirrored skeleton, fingertip and trajectory history |
 | Alternative input | dist/input/pointer-keyboard.js | Pointer capture, touch, keyboard steps and animation cadence |
 | Music | dist/music/ | Scale definitions, note names/tuning, smoothing and note gating |
@@ -27,8 +27,8 @@ The root music.js, audio.js and tracker.js files are compatibility exports. Exis
 
 1. Pointer/keyboard input produces normalized screen coordinates. Camera tracking produces raw MediaPipe landmarks; session.js mirrors fingertip x exactly once.
 2. MotionMapper.update(x, y, time) accepts x/y in [0, 1] and monotonically increasing milliseconds. Top is high pitch. It returns a mapped note event, or null for invalid/stale timestamps.
-3. The session passes triggered MIDI notes, velocity and pan to Synthesizer. Held notes update pan without retriggering.
-4. The view receives the same mapped event for the lane highlight, monitor and canvas. Raw landmarks remain unmirrored until drawn by the canvas renderer.
+3. The session passes triggered MIDI notes, velocity, pan, sound and an optional arrangement to Synthesizer. Held notes update pan without retriggering.
+4. The view receives the same mapped event for the lane highlight, monitor and canvas, plus the arrangement when one is playing so it can name each section's note. Raw landmarks remain unmirrored until drawn by the canvas renderer.
 
 Music functions have no DOM or hardware dependencies. Keep those calculations out of event handlers. Audio and camera modules own their hardware cleanup; presentation never starts or stops hardware.
 
@@ -55,11 +55,20 @@ The input adapter receives callbacks and read functions; it does not import the 
 
 ## Checks and limits
 
-Run npm run check and npm test. The syntax checker discovers all nested JavaScript in dist/, scripts/ and tests/. Server tests discover and fetch every application module, checking JavaScript MIME types. Existing audio, music and deadline tests continue to exercise the compatibility exports. Session tests exercise injected boundaries, including cancellation/restart races and missing camera frames.
+Run npm run check and npm test. The syntax checker discovers all nested JavaScript in dist/, scripts/ and tests/. Server tests discover and fetch every application module, checking JavaScript MIME types. Existing audio, music and deadline tests continue to exercise the compatibility exports. Session tests exercise injected boundaries, including cancellation/restart races and missing camera frames. Controls tests bind against the real element ids, and view tests build a DOM double from dist/index.html so the id contract and panel exclusivity are checked against the actual markup.
 
 Automated doubles do not establish actual webcam alignment, latency, sound quality or WebMCP browser support. Perform the manual checks in CONTRIBUTING.md when those areas change.
 
 ## Performance modes
 
-The `performance` setting (`solo` or `orchestra`) is independent of camera/mouse input. `music/orchestra.js` turns a mapped root into four diatonic section parts. The session passes this arrangement as the optional fifth argument to `Synthesizer.play`; solo callers retain the four-argument interface. The synthesizer owns all active section voices and releases them together, retaining releasing voices until oscillator cleanup completes. `audio/voice.js` defines the synthesized section timbres. Settings changes reset mapping and release all active sections.
-j
+The `performance` setting (`solo` or `orchestra`) is independent of camera/mouse input but exclusive with itself: exactly one mode is active at a time, and it decides which channels exist. Solo owns two hand channels (`left` and `right`), each with its own scale, sound, volume and mute. Orchestra owns a single `ensemble` channel driven by one conductor hand, and borrows the right hand's scale, volume and mute because it has no settings of its own. The two are never combined: there is no state in which both hand panels and the ensemble panel are shown.
+
+`music/orchestra.js` turns a mapped root into four diatonic section parts. The session passes that arrangement to `Synthesizer.play(channel, midi, velocity, pan, sound, arrangement)`, which always takes all six arguments and ignores `arrangement` when it is null. The synthesizer groups voices per channel and releases a channel's whole group together, retaining releasing voices until oscillator cleanup completes. `audio/voice.js` defines the synthesized section timbres. Section timbres are namespaced (`strings`, `woodwind`, `brass`, `cello`) so the orchestra bass does not collide with the solo `bass` instrument.
+
+The conductor is sticky: `conductorOf` keeps whichever hand is nearest the previous conductor's mirrored x, so a second hand entering frame cannot steal the ensemble mid-phrase. Losing every hand releases the ensemble and clears its readouts but leaves the session running, so the hand can return and resume. A performance change releases only the channels that were sounding, captured before the new settings are applied. Settings changes reset mapping and release all active sections.
+
+The view maps every channel onto a real panel before touching the DOM: `ensemble` reads out through the right-hand panel, because the ensemble is a single hand. Any channel that does not resolve to a real element would throw inside the tracking frame loop, and the tracker reports that as a fatal error which stops the session. Treat the `collectUI` id list and the panel mapping as one contract; `tests/view.test.mjs` checks it against the real markup.
+
+## Unwired modules
+
+`dist/music/Guitar-mapper.js` and `dist/tracking/two-hand-tracker.js` are left over from the two-hand/guitar line of work and are not imported by the composition root or any test. They are kept as-is for reference. Wire them up or delete them in a follow-up rather than expanding their surface here.

@@ -82,19 +82,19 @@ export function createSession({
     const tracked = trackedChannels().length;
     const hand = tracked + (settings.performance === 'orchestra' ? ' hand conducting' : ' hand' + (tracked === 1 ? '' : 's') + ' tracked');
     view.setStatus(mode === 'camera' ? hand + ' · Playing' : 'Mouse & keys · Playing');
+    // A hand setting follows the channel that actually plays it.
+    const channelSettings = settings[channel] || ensembleSettings();
+    const arrangement = settings.performance === 'orchestra'
+      ? arrangeOrchestra(mapped.midi, channelSettings.scale) : null;
     try {
-      // A hand setting follows the channel that actually plays it.
-      const channelSettings = settings[channel] || ensembleSettings();
       if (mapped.trigger) {
-        const arrangement = settings.performance === 'orchestra'
-          ? arrangeOrchestra(mapped.midi, channelSettings.scale) : null;
         audio.play(channel, mapped.midi, mapped.velocity, mapped.pan, channelSettings.sound, arrangement);
       } else audio.pan(channel, mapped.pan);
     } catch {
       fail(new Error('Audio playback stopped. Press Start to try again.'));
       return;
     }
-    view.renderNote(channel, mapped, landmarks, time);
+    view.renderNote(channel, mapped, landmarks, time, arrangement);
   }
 
   function handsByChannel(hands) {

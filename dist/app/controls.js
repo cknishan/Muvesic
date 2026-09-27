@@ -9,10 +9,6 @@ export function bindControls(ui, session, { document, window }) {
   listen(ui.mode, 'click', () => session.switchMode());
   listen(ui.reset, 'click', () => session.reset());
   listen(ui.performance, 'change', () => session.applySettings({ performance: ui.performance.value }));
-  listen(ui.scale, 'change', () => session.applySettings({ scale: ui.scale.value }));
-  listen(ui.sound, 'change', () => session.applySettings({ sound: ui.sound.value }));
-  listen(ui.volume, 'input', () => session.applySettings({ volume: Number(ui.volume.value) }));
-  listen(ui.mute, 'click', () => session.applySettings({ mute: !session.read().muted }));
   for (const channel of ['left', 'right']) {
     listen(ui[channel + '-scale'], 'change', () => session.applySettings({ [channel]: { scale: ui[channel + '-scale'].value } }));
     listen(ui[channel + '-sound'], 'change', () => session.applySettings({ [channel]: { sound: ui[channel + '-sound'].value } }));

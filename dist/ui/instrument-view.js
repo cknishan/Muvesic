@@ -2,11 +2,17 @@ import { SCALES } from '../music/scales.js';
 import { noteName, frequency } from '../music/notes.js';
 import { createStageRenderer } from './stage-renderer.js';
 
+// Orchestra section timbres, in the order the arrangement voices them.
+const SECTIONS = ['strings', 'woodwind', 'brass', 'cello'];
+const ENSEMBLE = 'ensemble';
+
 /** Collect the DOM contract once; fail early when markup and controls drift. */
 export function collectUI(document) {
   const ids = ['stage', 'camera', 'overlay', 'lanes', 'welcome', 'tracking-hint',
     'status', 'input-label', 'start', 'stop', 'mode', 'reset', 'session-time',
-    'error', 'stage-help', 'performance', 'performance-hint', 'ensemble'];
+    'error', 'stage-help', 'performance', 'performance-hint', 'ensemble',
+    'left-panel', 'right-panel', 'conductor-heading', 'conductor-eyebrow',
+    ...SECTIONS.map(section => 'ensemble-' + section)];
   for (const channel of ['left', 'right']) {
     ids.push(channel + '-sound', channel + '-sound-label', channel + '-scale',
       channel + '-scale-hint', channel + '-volume', channel + '-volume-value',
@@ -76,10 +82,19 @@ export function createInstrumentView(ui) {
       : 'Press Start playing, then move your pointer.<br>You can also focus this area and use arrow keys.';
   }
 
+  // The ensemble is a single hand, so it reads out through the right-hand panel.
+  // Every channel must map to a real panel: an unknown id here throws inside the
+  // tracking frame loop and takes the camera down with it.
+  const panel = channel => (channel === ENSEMBLE ? 'right' : channel);
+
+  function clearSectionNotes() {
+    for (const section of SECTIONS) ui['ensemble-' + section].textContent = '—';
+  }
+
   function clearVisual(channel = null) {
     stage.clear(channel);
     [...ui.lanes.children].forEach(lane => lane.classList.remove('active'));
-    const channels = channel ? [channel] : ['left', 'right'];
+    const channels = channel ? [panel(channel)] : ['left', 'right'];
     for (const id of channels) {
       ui[id + '-note'].textContent = '—';
       ui[id + '-frequency'].textContent = 'Waiting';
@@ -88,11 +103,12 @@ export function createInstrumentView(ui) {
       ui[id + '-meter'].setAttribute('aria-valuenow', '0');
       ui[id + '-pan-dot'].style.left = '50%';
     }
+    if (!channel || channel === ENSEMBLE) clearSectionNotes();
   }
 
-  function renderNote(channel, mapped, landmarks, time) {
+  function renderNote(channel, mapped, landmarks, time, arrangement = null) {
     [...ui.lanes.children].forEach((lane, i) => lane.classList.toggle('active', i === mapped.index));
-    const id = channel === 'ensemble' ? 'right' : channel;
+    const id = panel(channel);
     ui[id + '-note'].textContent = noteName(mapped.midi);
     ui[id + '-frequency'].textContent = frequency(mapped.midi).toFixed(1) + ' Hz';
     const intensity = Math.round(mapped.intensity * 100);
@@ -100,6 +116,13 @@ export function createInstrumentView(ui) {
     ui[id + '-meter'].setAttribute('aria-valuenow', String(intensity));
     ui[id + '-dynamics'].textContent = intensity > 65 ? 'Expressive' : intensity > 20 ? 'Flowing' : 'Gentle';
     ui[id + '-pan-dot'].style.left = mapped.x * 100 + '%';
+    if (channel === ENSEMBLE) {
+      for (const section of SECTIONS) ui['ensemble-' + section].textContent = '—';
+      for (const part of arrangement || []) {
+        const readout = ui['ensemble-' + part.sound];
+        if (readout) readout.textContent = noteName(part.midi);
+      }
+    }
     stage.paint(channel, landmarks, mapped, time);
   }
 
@@ -109,7 +132,14 @@ export function createInstrumentView(ui) {
     document.body.dataset.performance = settings.performance;
     ui['performance-hint'].textContent = ensemble
       ? 'One hand leads the whole ensemble.' : 'One or two hands, each on its own sound.';
+    // Orchestra is a single hand on one ensemble, so the second hand panel is put
+    // away and the surviving panel is relabelled instead of showing a second scale.
+    ui['left-panel'].hidden = ensemble;
+    ui['right-panel'].hidden = false;
+    ui['conductor-heading'].textContent = ensemble ? 'Ensemble' : 'Right hand';
+    ui['conductor-eyebrow'].textContent = ensemble ? 'ENSEMBLE NOTE' : 'RIGHT NOTE';
     ui.ensemble.hidden = !ensemble;
+    if (ensemble) clearSectionNotes();
     for (const channel of ['left', 'right']) {
       const { scale, sound, volume, mute } = settings[channel];
       ui[channel + '-scale'].value = scale;
