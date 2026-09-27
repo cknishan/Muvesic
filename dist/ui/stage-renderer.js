@@ -1,30 +1,65 @@
+import { BODY_BONES, J } from '../tracking/posture.js';
+
 const CONNECTIONS = [
   [0, 1], [1, 2], [2, 3], [3, 4], [0, 5], [5, 6], [6, 7], [7, 8],
   [5, 9], [9, 10], [10, 11], [11, 12], [9, 13], [13, 14], [14, 15],
   [15, 16], [13, 17], [0, 17], [17, 18], [18, 19], [19, 20],
 ];
+/** Only the joints the body mapper reads, so the overlay stays legible instead of
+ * speckling the stage with 33 unlabelled points. */
+const BODY_JOINTS = Object.values(J);
+const HAND_JOINTS = CONNECTIONS.flat();
 
-/** Owns canvas drawing and trajectory history; never controls audio or tracking. */
-export function createStageRenderer(canvas) {
-  const ctx = canvas.getContext('2d');
-  const colors = {
+/** Per-performance palette. Body mode uses one shared colour for all four limbs
+ *  so the player reads them as one band with four voices rather than four
+ *  separate things fighting for attention. */
+const PALETTES = {
+  solo: {
     left: { line: '#c6f36b88', point: '#d9ff95', glow: '#c6f36b26' },
     right: { line: '#7cc7ff88', point: '#a8dcff', glow: '#7cc7ff26' },
+  },
+  orchestra: {
     ensemble: { line: '#edc78388', point: '#f3dcae', glow: '#edc78326' },
-  };
+  },
+  body: {
+    left: { line: '#f79ad488', point: '#fdc4d8', glow: '#f79ad426' },
+    right: { line: '#f79ad488', point: '#fdc4d8', glow: '#f79ad426' },
+    lowerLeft: { line: '#f79ad488', point: '#fdc4d8', glow: '#f79ad426' },
+    lowerRight: { line: '#f79ad488', point: '#fdc4d8', glow: '#f79ad426' },
+  },
+};
+
+/** Owns canvas drawing and trajectory history; never controls audio or tracking.
+ *  Landmarks arrive unmirrored and are mirrored here, so the skeleton lines up with
+ *  the CSS-mirrored video.
+ *
+ *  In body mode the four limbs are stored as four separate visuals and all drawn
+ *  each frame. Each limb's dot is the same size; a ring around it pulses with that
+ *  limb's intensity, so a still limb reads as a steady dot and a moving limb reads
+ *  as a breathing one.
+ */
+export function createStageRenderer(canvas) {
+  const ctx = canvas.getContext('2d');
   const visuals = new Map();
   const trails = new Map();
 
-  function drawHand(landmarks, width, height, color) {
+  function colorFor(channel, performance) {
+    return (PALETTES[performance] || PALETTES.solo)[channel] || PALETTES.solo.right;
+  }
+
+  function drawSkeleton(landmarks, bones, joints, width, height, color) {
     ctx.strokeStyle = color.line;
     ctx.lineWidth = 2;
-    for (const [a, b] of CONNECTIONS) {
+    for (const [a, b] of bones) {
+      if (!landmarks[a] || !landmarks[b]) continue;
       ctx.beginPath();
       ctx.moveTo((1 - landmarks[a].x) * width, landmarks[a].y * height);
       ctx.lineTo((1 - landmarks[b].x) * width, landmarks[b].y * height);
       ctx.stroke();
     }
-    for (const landmark of landmarks) {
+    for (const index of joints) {
+      const landmark = landmarks[index];
+      if (!Number.isFinite(landmark?.x)) continue;
       ctx.beginPath();
       ctx.arc((1 - landmark.x) * width, landmark.y * height, 3, 0, Math.PI * 2);
       ctx.fillStyle = color.point;
@@ -43,18 +78,45 @@ export function createStageRenderer(canvas) {
     }
   }
 
-  function drawVisual({ channel, landmarks, point, time }, width, height) {
-    const color = colors[channel] || colors.right;
-    if (landmarks) drawHand(landmarks, width, height, color);
-    drawTrail(trails.get(channel) || [], width, height, color);
+  /** One pulse: a soft outer ring + a bright dot at the centre. The ring breathes
+   *  with the limb's intensity on top of a constant breathing rhythm so a held
+   *  pose still reads as alive. */
+  function drawPulse(point, intensity, time, color) {
+    const x = point.x;
+    const y = point.y;
+    const breath = .5 + .5 * Math.sin(time / 220);
+    const ring = 8 + intensity * 14 + breath * 4;
     ctx.beginPath();
-    ctx.arc(point.x * width, point.y * height, 17, 0, Math.PI * 2);
+    ctx.arc(x, y, ring, 0, Math.PI * 2);
+    ctx.strokeStyle = color.line;
+    ctx.lineWidth = 2;
+    ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(x, y, ring * .55, 0, Math.PI * 2);
     ctx.fillStyle = color.glow;
     ctx.fill();
     ctx.beginPath();
-    ctx.arc(point.x * width, point.y * height, 6, 0, Math.PI * 2);
+    ctx.arc(x, y, 4, 0, Math.PI * 2);
     ctx.fillStyle = color.point;
     ctx.fill();
+  }
+
+  function drawVisual(visual, width, height) {
+    const { channel, point, time, performance, intensity } = visual;
+    const color = colorFor(channel, performance);
+    drawPulse(point, intensity ?? 0, time, color);
+    // Solo and orchestra still draw the fingertip trail; body mode does not —
+    // trails for four limbs would speckle the stage instead of reading clearly.
+    if (performance !== 'body') drawTrail(trails.get(channel) || [], width, height, color);
+  }
+
+  /** Hands get one skeleton per visual; body mode draws one shared skeleton
+   *  because every limb paint carries the same pose. */
+  function skeletonsFor() {
+    const list = [...visuals.values()].filter(visual => visual.landmarks);
+    if (list.length === 0) return [];
+    if (list[0].performance === 'body') return [list[0]];
+    return list;
   }
 
   function redrawAll() {
@@ -67,14 +129,22 @@ export function createStageRenderer(canvas) {
     }
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, width, height);
+    for (const visual of skeletonsFor()) {
+      const color = colorFor(visual.channel, visual.performance);
+      const body = visual.performance === 'body';
+      drawSkeleton(visual.landmarks, body ? BODY_BONES : CONNECTIONS,
+        body ? BODY_JOINTS : HAND_JOINTS, width, height, color);
+    }
     for (const visual of visuals.values()) drawVisual(visual, width, height);
   }
 
-  function paint(channel, landmarks, point, time) {
-    const trail = (trails.get(channel) || []).filter(point => time - point.time < 550);
-    trail.push({ x: point.x, y: point.y, time });
-    trails.set(channel, trail);
-    visuals.set(channel, { channel, landmarks, point, time });
+  function paint(channel, landmarks, point, time, performance) {
+    if (performance !== 'body') {
+      const trail = (trails.get(channel) || []).filter(point => time - point.time < 550);
+      trail.push({ x: point.x, y: point.y, time });
+      trails.set(channel, trail);
+    }
+    visuals.set(channel, { channel, landmarks, point, time, performance, intensity: point.intensity ?? 0 });
     redrawAll();
   }
 

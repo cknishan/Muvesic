@@ -46,6 +46,8 @@ For UI/input/session changes, check mouse mode in Chrome or Edge: start, move ac
 
 For camera/audio changes, also check permission denial, stopping during permission/model loading, restarting before the old startup finishes, missing-hand silence, mirrored skeleton alignment, physical sound output and the camera indicator turning off on Stop. Test a network/model failure when tracking changes. Never treat test doubles as webcam or sound-quality verification.
 
+For body mode, also check the calibration window staying silent and then starting on its own, arm height mapping to pitch at two different distances from the camera, the posture readout settling instead of flickering, the stage asking for more room when the feet leave the frame, and full-body silence when you walk out of frame.
+
 ## Pull request notes
 
 Describe the user-visible outcome (or preserved behavior for a refactor), affected module boundaries, validation performed and any hardware/browser checks still outstanding. Mention public contract changes so other contributors can update their branches. Keep unrelated generated files and sweeping formatting out of feature PRs.

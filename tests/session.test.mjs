@@ -2,6 +2,32 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { deferred, sessionHarness } from './helpers/session-harness.mjs';
 
+function openHand(x = .2, y = .5) {
+  const landmarks = Array.from({ length: 21 }, () => ({ x, y }));
+  landmarks[4] = { x: x - .18, y: y + .18 };
+  landmarks[8] = { x, y };
+  landmarks[12] = { x: x + .08, y: y + .18 };
+  landmarks[16] = { x: x + .16, y: y + .02 };
+  landmarks[20] = { x: x - .1, y: y - .18 };
+  return landmarks;
+}
+
+function clusteredHand(x = .2, y = .5) {
+  const landmarks = Array.from({ length: 21 }, () => ({ x, y }));
+  for (const index of [4, 8, 12, 16, 20]) landmarks[index] = { x, y };
+  return landmarks;
+}
+
+function looseClusteredHand(x = .2, y = .5) {
+  const landmarks = Array.from({ length: 21 }, () => ({ x, y }));
+  landmarks[4] = { x: x - .085, y };
+  landmarks[8] = { x: x - .04, y };
+  landmarks[12] = { x, y };
+  landmarks[16] = { x: x + .04, y };
+  landmarks[20] = { x: x + .085, y };
+  return landmarks;
+}
+
 test('mouse mode plays, releases on input loss, and stops its resources', async t => {
   const h = sessionHarness();
   t.after(() => h.session.dispose());
@@ -11,7 +37,7 @@ test('mouse mode plays, releases on input loss, and stops its resources', async 
   assert.equal(h.trackers.length, 0);
   assert.ok(h.events.some(([name]) => name === 'input.start'));
   h.input().onPoint(0, 0, 100);
-  assert.deepEqual(h.audioInstances[0].notes[0], ['right', 72, .24, -1, 'keys', null]);
+  assert.deepEqual(h.audioInstances[0].notes[0], ['right', 72, .24, -1, 'bell', null]);
   h.input().onLost();
   assert.equal(h.audioInstances[0].released, 1);
   h.input().onPoint(1, 1, 200);
@@ -64,7 +90,7 @@ test('camera coordinates mirror once and missing frames release the note', async
   const h = sessionHarness();
   t.after(() => h.session.dispose());
   await h.session.start();
-  const landmarks = Array.from({ length: 21 }, () => ({ x: .2, y: .5 }));
+  const landmarks = openHand(.2, .5);
   h.trackers[0].onFrame([landmarks], 100);
   assert.equal(h.audioInstances[0].notes[0][0], 'right');
   assert.ok(Math.abs(h.audioInstances[0].notes[0][3] - .6) < 1e-9);
@@ -86,21 +112,66 @@ test('invalid settings are atomic and reset restores the default camera session'
   assert.deepEqual(h.session.read(), before);
   h.session.reset();
   assert.deepEqual(h.session.read(), { state: 'idle', mode: 'camera', performance: 'solo',
-    left: { scale: 'pentatonic', sound: 'bass', volume: 65, muted: false },
-    right: { scale: 'pentatonic', sound: 'keys', volume: 65, muted: false } });
+    left: { scale: 'pentatonic', sound: 'bell', volume: 65, muted: false, octave: 0 },
+    right: { scale: 'pentatonic', sound: 'bell', volume: 65, muted: false, octave: 12 },
+    lowerLeft: { scale: 'pentatonic', sound: 'bell', volume: 65, muted: false, octave: -24 },
+    lowerRight: { scale: 'pentatonic', sound: 'bell', volume: 65, muted: false, octave: -12 },
+    ensemble: { scale: 'pentatonic', sound: 'bell', volume: 65, muted: false, octave: 12 } });
 });
 
 test('camera mode maps two screen-side hands to independent instruments', async t => {
   const h = sessionHarness();
   t.after(() => h.session.dispose());
   await h.session.start();
-  const left = Array.from({ length: 21 }, () => ({ x: .85, y: .5 }));
-  const right = Array.from({ length: 21 }, () => ({ x: .15, y: .2 }));
+  const left = openHand(.85, .5);
+  const right = openHand(.15, .2);
   h.trackers[0].onFrame([right, left], 100);
-  assert.deepEqual(h.audioInstances[0].notes.map(note => [note[0], note[4]]), [['left', 'bass'], ['right', 'keys']]);
+  assert.deepEqual(h.audioInstances[0].notes.map(note => [note[0], note[4]]), [['left', 'bell'], ['right', 'bell']]);
   h.trackers[0].onFrame([right], 200);
   assert.ok(h.audioInstances[0].releases.includes('left'));
   assert.ok(!h.audioInstances[0].releases.includes('right'));
+});
+
+test('clustered fingertips mute solo playback until the hand opens again', async t => {
+  const h = sessionHarness();
+  t.after(() => h.session.dispose());
+  await h.session.start();
+  h.trackers[0].onFrame([openHand(.2, .5)], 100);
+  assert.equal(h.audioInstances[0].notes.length, 1);
+  h.trackers[0].onFrame([clusteredHand(.2, .5)], 200);
+  assert.ok(h.audioInstances[0].releases.includes('right'));
+  h.trackers[0].onFrame([openHand(.2, .25)], 300);
+  assert.equal(h.audioInstances[0].notes.length, 2, 'opening the hand resumes playback');
+});
+
+test('clustered fingertips mute only their matching solo hand', async t => {
+  const h = sessionHarness();
+  t.after(() => h.session.dispose());
+  await h.session.start();
+  const left = openHand(.85, .5);
+  const right = openHand(.15, .2);
+  h.trackers[0].onFrame([right, left], 100);
+  assert.deepEqual(h.audioInstances[0].notes.map(note => note[0]), ['left', 'right']);
+  h.trackers[0].onFrame([openHand(.15, .1), looseClusteredHand(.85, .5)], 250);
+  assert.ok(h.audioInstances[0].releases.includes('left'));
+  assert.ok(!h.audioInstances[0].releases.includes('right'));
+  assert.equal(h.audioInstances[0].notes.at(-1)[0], 'right', 'the open hand keeps playing');
+  h.trackers[0].onFrame([openHand(.15, .1), openHand(.85, .25)], 400);
+  assert.equal(h.audioInstances[0].notes.filter(note => note[0] === 'left').length, 2,
+    'opening the clustered hand lets that hand play again');
+});
+
+test('clustered fingertips mute orchestra playback until the hand opens again', async t => {
+  const h = sessionHarness();
+  t.after(() => h.session.dispose());
+  h.session.applySettings({ performance: 'orchestra' });
+  await h.session.start();
+  h.trackers[0].onFrame([openHand(.5, .5)], 100);
+  assert.equal(h.audioInstances[0].notes[0][0], 'ensemble');
+  h.trackers[0].onFrame([clusteredHand(.5, .5)], 200);
+  assert.ok(h.audioInstances[0].releases.includes('ensemble'));
+  h.trackers[0].onFrame([openHand(.5, .25)], 300);
+  assert.equal(h.audioInstances[0].notes.length, 2, 'opening the hand resumes the ensemble');
 });
 
 test('startup and playback failures return to idle and surface recovery text', async t => {
@@ -126,7 +197,7 @@ test('orchestra works in both inputs and switching back releases the ensemble', 
     if (mouse) h.session.switchMode();
     h.session.applySettings({ performance: 'orchestra' });
     await h.session.start();
-    const hand = Array.from({ length: 21 }, () => ({ x: .5, y: .5 }));
+    const hand = openHand(.5, .5);
     const play = time => mouse ? h.input().onPoint(.5, .5, time)
       : h.trackers[0].onFrame([hand], time);
     play(100);
@@ -148,7 +219,7 @@ test('orchestra follows one conductor even when a second hand is visible', async
   t.after(() => h.session.dispose());
   h.session.applySettings({ performance: 'orchestra' });
   await h.session.start();
-  const hand = (x, y) => Array.from({ length: 21 }, () => ({ x, y }));
+  const hand = openHand;
   h.trackers[0].onFrame([hand(.1, .5), hand(.9, .5)], 100);
   assert.equal(h.audioInstances[0].notes.length, 1, 'two hands still make one ensemble note');
   assert.ok(Math.abs(h.audioInstances[0].notes[0][3] - .8) < 1e-9);
@@ -173,13 +244,13 @@ test('orchestra follows one conductor even when a second hand is visible', async
 test('orchestra borrows the right hand mix and keeps both hand settings', async t => {
   const h = sessionHarness();
   t.after(() => h.session.dispose());
-  h.session.applySettings({ performance: 'orchestra', right: { volume: 40, mute: true } });
+  h.session.applySettings({ performance: 'orchestra', right: { volume: 40, mute: true }, left: { sound: 'guitar' } });
   await h.session.start();
   const ensembleMix = args => args[2] === 'ensemble';
   assert.ok(h.audioInstances[0].volumes.some(args => ensembleMix(args) && args[0] === .4 && args[1] === true));
   assert.ok(h.audioInstances[0].volumes.some(args => args[2] === 'right' && args[0] === .4 && args[1] === true));
   assert.equal(h.session.read().right.volume, 40);
-  assert.equal(h.session.read().left.sound, 'bass', 'the left hand keeps its solo sound while orchestra is active');
+  assert.equal(h.session.read().left.sound, 'guitar', 'the left hand keeps its solo sound while orchestra is active');
   h.session.applySettings({ performance: 'solo' });
   assert.equal(h.session.read().right.muted, true, 'switching modes does not discard a choice');
   h.session.reset();

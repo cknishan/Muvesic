@@ -11,6 +11,7 @@ export function sessionHarness({ audioStart, trackerStart } = {}) {
   const events = [];
   const audioInstances = [];
   const trackers = [];
+  const poseTrackers = [];
   let callbacks;
   const view = Object.fromEntries([
     'renderControls', 'clearVisual', 'showTrackingHint', 'setStatus', 'showError',
@@ -20,8 +21,10 @@ export function sessionHarness({ audioStart, trackerStart } = {}) {
     view, video: {},
     createInput: handlers => {
       callbacks = handlers;
-      return Object.fromEntries(['start', 'stop', 'dispose'].map(name =>
-        [name, () => events.push(['input.' + name])]));
+      // The session's input contract: handlers is what the session calls; start,
+      // stop and dispose are what tests call to control the input loop.
+      return Object.assign(Object.fromEntries(['start', 'stop', 'dispose'].map(name =>
+        [name, () => events.push(['input.' + name])])), handlers);
     },
     createAudio: () => {
       const audio = { closed: 0, released: 0, releases: [], notes: [], volumes: [],
@@ -35,14 +38,22 @@ export function sessionHarness({ audioStart, trackerStart } = {}) {
       audioInstances.push(audio);
       return audio;
     },
-    createTracker: (video, onFrame, onError) => {
+    // Hands and poses share one boundary shape: a tracker can start, stop, and
+    // hand the session a frame. Which list a tracker lands in is how a test
+    // asserts the camera pipeline the session chose.
+    createTracker: trackInto(trackers),
+    createPoseTracker: trackInto(poseTrackers),
+  });
+  return { session, events, audioInstances, trackers, poseTrackers, input: () => callbacks };
+
+  function trackInto(list) {
+    return (video, onFrame, onError) => {
       const tracker = { onFrame, onError, stopped: 0,
         start: () => trackerStart?.() ?? Promise.resolve(),
         stop: () => { tracker.stopped++; },
       };
-      trackers.push(tracker);
+      list.push(tracker);
       return tracker;
-    },
-  });
-  return { session, events, audioInstances, trackers, input: () => callbacks };
+    };
+  }
 }
