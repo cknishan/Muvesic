@@ -7,6 +7,8 @@ import { cameraError } from '../tracking/errors.js';
 import { CHANNELS, DEFAULT_SETTINGS, validateSettings } from './settings.js';
 
 const ENSEMBLE = 'ensemble';
+const FINGERTIPS = Object.freeze([4, 8, 12, 16, 20]);
+const FINGER_CLUSTER_RADIUS = .18;
 
 /** Owns idle/loading/running transitions and per-session resources.
  * Factories are injectable so lifecycle tests need neither a DOM nor hardware.
@@ -97,6 +99,30 @@ export function createSession({
     view.renderNote(channel, mapped, landmarks, time, arrangement);
   }
 
+  function fingertipsClustered(hand) {
+    const tips = FINGERTIPS.map(index => hand?.[index]);
+    if (tips.some(point => !point || !Number.isFinite(point.x) || !Number.isFinite(point.y))) return false;
+    for (let i = 0; i < tips.length; i++) {
+      for (let j = i + 1; j < tips.length; j++) {
+        if (Math.hypot(tips[i].x - tips[j].x, tips[i].y - tips[j].y) > FINGER_CLUSTER_RADIUS) {
+          return false;
+        }
+      }
+    }
+    return true;
+  }
+
+  function muteAll(message = 'Fingers closed · Sound muted') {
+    for (const channel of [...CHANNELS, ENSEMBLE]) {
+      audio?.release(channel);
+      mappers[channel].reset();
+      view.clearVisual(channel);
+      tracking[channel] = false;
+    }
+    view.showTrackingHint(false);
+    if (state === 'running') view.setStatus(message);
+  }
+
   function handsByChannel(hands) {
     const visible = hands.filter(hand => hand?.[8]).sort((a, b) => (1 - a[8].x) - (1 - b[8].x));
     if (visible.length === 0) return {};
@@ -172,6 +198,10 @@ export function createSession({
             const hand = conductorOf(hands, previousConductorX);
             previousConductorX = conductorX(hand);
             if (hand) {
+              if (fingertipsClustered(hand)) {
+                muteAll();
+                return;
+              }
               // Mirror input once to match the displayed video. Drawing mirrors raw landmarks.
               playPoint(ENSEMBLE, 1 - hand[8].x, hand[8].y, time, hand);
             } else loseTracking(ENSEMBLE);
@@ -181,6 +211,8 @@ export function createSession({
           for (const channel of CHANNELS) {
             const landmarks = channels[channel];
             if (!landmarks) {
+              loseTracking(channel);
+            } else if (fingertipsClustered(landmarks)) {
               loseTracking(channel);
             } else {
               // Mirror input once to match the displayed video. Drawing mirrors raw landmarks.
