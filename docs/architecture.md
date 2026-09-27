@@ -62,3 +62,4 @@ Automated doubles do not establish actual webcam alignment, latency, sound quali
 ## Performance modes
 
 The `performance` setting (`solo` or `orchestra`) is independent of camera/mouse input. `music/orchestra.js` turns a mapped root into four diatonic section parts. The session passes this arrangement as the optional fifth argument to `Synthesizer.play`; solo callers retain the four-argument interface. The synthesizer owns all active section voices and releases them together, retaining releasing voices until oscillator cleanup completes. `audio/voice.js` defines the synthesized section timbres. Settings changes reset mapping and release all active sections.
+j
