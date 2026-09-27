@@ -30,3 +30,8 @@ body[data-arranged=true] .hand-panel-left h3,body[data-arranged=true] .hand-pane
 
 /* Top-level nav for the About page. */
 .site-nav{display:flex;align-items:center;gap:20px;flex-shrink:0}.site-nav a{color:var(--muted);text-decoration:none;font-size:.875rem;padding:8px 0}.site-nav a:hover,.site-nav a[aria-current=page]{color:var(--acid)}.site-nav a[aria-current=page]{border-bottom:1px solid currentColor}.about-description{max-width:660px;color:var(--muted);line-height:1.75;margin:0 0 12px}.about-play{display:inline-flex;text-decoration:none;margin:4px 0 40px}.about-page .guide{padding-top:28px}@media(max-width:760px){.masthead{flex-wrap:wrap}.site-nav{width:100%;justify-content:flex-end;gap:24px}}
+
+/* About-page hero figure: a single rounded image sits between the intro and the
+   guide so the page reads as Muvesic in one glance. */
+.about-figure{margin:0 0 28px}
+.about-figure img{display:block;width:100%;height:auto;border-radius:10px;border:1px solid var(--line)}

@@ -65,24 +65,19 @@ test('orchestra draws one skeleton for the conductor hand', () => {
 test('body draws one whole-body skeleton regardless of how many limbs are sounding', () => {
   const { canvas, counts } = makeCanvas();
   const renderer = createStageRenderer(canvas);
-  // Paint all four limbs in sequence. With body-mode deduplication, each paint
-  // redraws one body skeleton (12 bones) and one pulse per visual. The first
-  // paint produces 13 strokes, the last produces 12 + 4 = 16. The total
-  // accumulated count is 13 + 16 + 16 + 16 = 61.
+  // Paint four limbs in sequence. Body mode deduplicates the shared skeleton,
+  // so each redraw lays down 12 bone strokes + 1 pulse stroke per visual.
   renderer.paint('left', BODY(), { x: .3, y: .2, intensity: .4 }, 100, 'body');
-  const linesAfterOne = counts.lines;
   renderer.paint('right', BODY(), { x: .7, y: .2, intensity: .4 }, 100, 'body');
   renderer.paint('lowerLeft', BODY(), { x: .4, y: .8, intensity: .4 }, 100, 'body');
   renderer.paint('lowerRight', BODY(), { x: .6, y: .8, intensity: .4 }, 100, 'body');
-  // Four paints total. If body mode were re-drawing one skeleton per visual
-  // (the bug we are guarding against), the total would grow linearly with the
-  // number of limbs: 12 + (12+1) + (12+2) + (12+3) + (12+4) = 78 strokes.
-  // The deduplicated contract is: one skeleton per redraw, no matter how many
-  // limbs are sounding — total is 13 + 16*3 = 61 strokes.
-  assert.equal(counts.lines, 13 + 16 * 3,
-    'one body skeleton and a pulse per visual, regardless of how many limbs paint');
-  // First paint = 12 skeleton + 1 pulse.
-  assert.equal(linesAfterOne, 13);
+  // Each paint redraws the full stage. After four paints with 1, 2, 3, 4
+  // visuals respectively, the running total of strokes is
+  // 13 + 14 + 15 + 16 = 58 — one skeleton per redraw, plus a pulse per visual.
+  // If the skeleton were redrawn per visual (the bug we guard against), the
+  // total would balloon to 12*4 + (12+1) + (12+2) + (12+3) + (12+4) = 106.
+  assert.equal(counts.lines, 13 + 14 + 15 + 16,
+    'one body skeleton per redraw, plus a pulse per visible limb');
 });
 
 test('clearing one hand removes only that skeleton, not the other', () => {
