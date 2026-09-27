@@ -22,17 +22,26 @@ Open **http://localhost:5173** in a recent desktop Chrome or Edge browser. No np
 
 ## Design and implementation
 
-- `dist/app.js`: UI state, canvas skeleton/trajectory, input, session cleanup, optional WebMCP tools.
-- `dist/tracker.js`: MediaPipe Hand Landmarker, mirrored camera coordinates, confidence thresholds, ~30 Hz processing cap, deadlines and cancellation cleanup.
-- `dist/music.js`: time-based coordinate smoothing, pitch hysteresis, velocity and pan mapping, 85 ms minimum interval between attacks. Held notes are not retriggered.
-- `dist/audio.js`: Web Audio synthesis, attack/decay envelopes, stereo panning, master gain/mute, compressor, and voice cleanup. Sounds are synthesized, not recorded piano samples.
-- `scripts/serve.mjs`: dependency-free local static server, bound to loopback.
+The application is split by responsibility so contributors can work in separate files:
+
+- `dist/app/`: session lifecycle, validated settings and control bindings.
+- `dist/ui/`: DOM presentation and canvas rendering.
+- `dist/input/`: pointer, touch and keyboard input.
+- `dist/music/`: scales, tuning and motion-to-note mapping.
+- `dist/audio/`: synthesis, individual voices and cleanup.
+- `dist/tracking/`: camera/model lifecycle, configuration and recovery messages.
+- `dist/integrations/`: optional WebMCP tools.
+- `dist/shared/`: math and resource deadline helpers.
+- `dist/app.js`: small composition entry point; root music/audio/tracker modules preserve public imports.
+- `scripts/`: dependency-free development server and recursive syntax checks.
+
+See [Architecture](docs/architecture.md) for ownership, data flow, lifecycle contracts and extension recipes. See [Contributing](CONTRIBUTING.md) for parallel development, merge guidance and review checks.
 
 The default pentatonic spans C4 to C5 (five distinct pitch classes plus the top octave). Tracking a single hand avoids two-hand switching; it does not enforce handedness. Use only one hand in frame. Missing or stale frames release the current voice and reset movement history. Note that MediaPipe inference runs synchronously on the main thread, capped near 30 Hz; actual frame rate and latency depend on the device and have not been benchmarked on physical webcam hardware.
 
 ## Network and deployment
 
-Camera access requires **HTTPS or localhost**. Do not open `index.html` with a `file://` URL. Host `dist/` on a static HTTPS host; `.openai/hosting.json` describes the Sites target.
+Camera access requires **HTTPS or localhost**. Do not open `index.html` with a `file://` URL. Host the entire `dist/` directory, including its module subdirectories, on a static HTTPS host.
 
 Camera mode downloads the pinned `@mediapipe/tasks-vision@0.10.22-rc.20250304` JavaScript/WASM from jsDelivr and Google's version-1 float16 Hand Landmarker model. The model/runtime are fetched on start; video frames stay in the browser. Internet access to those hosts is required, and first startup can take several seconds. Mouse mode does not load MediaPipe. Google Fonts is optional; system fonts are used if it is unavailable. For an offline or restricted-network installation, vendor the runtime, WASM, model and fonts, then update their URLs.
 
@@ -45,7 +54,7 @@ npm run check
 npm test
 ```
 
-Tests cover musical mapping, jitter suppression, note gating, tracking reacquisition, dynamics, tuning, audio graph lifecycle with an AudioContext test double, cancellation/deadline disposal, error messages and HTTP serving. They do not substitute for hearing the audio or exercising a physical webcam.
+Tests cover musical mapping, jitter suppression, note gating, tracking reacquisition, dynamics, tuning, audio graph lifecycle with an AudioContext test double, cancellation/deadline disposal, error messages, session cancellation/restart races, settings validation and HTTP serving of every nested module. They do not substitute for hearing the audio or exercising a physical webcam.
 
 Manual acceptance: start the camera; check that the skeleton aligns with the mirrored hand; play a low-to-high melody; compare slow and fast movement; move out of frame and verify silence; stop and confirm the camera indicator turns off. Also try permission denial, model/network failure, mute, reset, tab switching and restarting during startup.
 
