@@ -55,8 +55,16 @@ npm run check
 npm test
 ```
 
-Tests cover musical mapping, jitter suppression, note gating, tracking reacquisition, dynamics, tuning, audio graph lifecycle with an AudioContext test double, cancellation/deadline disposal, error messages, session cancellation/restart races, settings validation and HTTP serving of every nested module. They do not substitute for hearing the audio or exercising a physical webcam.
+Tests cover musical mapping, jitter suppression, note gating, tracking reacquisition, dynamics, tuning, audio graph lifecycle with an AudioContext test double, cancellation/deadline disposal, error messages, session cancellation/restart races, settings validation, control binding against the real element ids, panel exclusivity against the real markup, and HTTP serving of every nested module. They do not substitute for hearing the audio or exercising a physical webcam.
 
-Manual acceptance: start the camera; check that each skeleton aligns with the mirrored hand; play separate low-to-high melodies on the left and right sides; compare slow and fast movement; move one hand out of frame and verify only that side goes silent; stop and confirm the camera indicator turns off. Also try permission denial, model/network failure, mute, reset, tab switching and restarting during startup.
+Manual acceptance: start the camera; check that each skeleton aligns with the mirrored hand; play separate low-to-high melodies on the left and right sides; compare slow and fast movement; move one hand out of frame and verify only that side goes silent; stop and confirm the camera indicator turns off. Also try permission denial, model/network failure, mute, reset, tab switching and restarting during startup. In orchestra mode, confirm the second hand panel is gone, the four section readouts update, and moving the conductor out of frame silences the ensemble and lets it resume on return.
 
 Optional `document.modelContext` tools configure/read settings and stop sessions, sharing the UI actions. They are feature-detected and never start camera/audio. A supported WebMCP browser context is needed to validate their registration; automated verification here does not cover that browser proposal.
+
+## Orchestra mode
+
+Choose **Orchestra** in the **Play your way** selector above the stage, then start the camera or switch to mouse input. Each pitch leads a diatonic harmony across synthesized strings, woodwinds, brass and cello. Lift your finger or pointer for higher harmonies, move sideways to pan the ensemble, and move faster into a new pitch for a louder attack. Arrow keys and touch input also work.
+
+One hand conducts the whole ensemble, so the two-hand panels are replaced by a single **Ensemble** panel: the four sections show the note each one is playing, and the scale, volume and mute controls below shape all of them together. Per-hand instrument selects are put away, because the arrangement picks the section timbres. One scale is shown rather than two, since both hands would play the same one.
+
+Orchestra uses C major harmony for the major and pentatonic scales, and A minor harmony for the minor scale. These are browser-synthesized timbres, not recorded orchestral samples. Choose **Two-hand solo** to return to your selected solo sound. The two modes are exclusive: switching releases the previous notes, and Stop, tracking loss and Reset release every section. If the conductor leaves the frame the ensemble goes quiet and picks up again when the hand returns, without stopping the session.

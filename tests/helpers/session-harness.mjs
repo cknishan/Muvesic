@@ -29,7 +29,7 @@ export function sessionHarness({ audioStart, trackerStart } = {}) {
         close: async () => { audio.closed++; },
         release: channel => { audio.released++; audio.releases.push(channel); },
         play: (...args) => audio.notes.push(args),
-        pan: value => events.push(['pan', value]),
+        pan: (channel, value) => events.push(['pan', channel, value]),
         setVolume: (...args) => audio.volumes.push(args),
       };
       audioInstances.push(audio);

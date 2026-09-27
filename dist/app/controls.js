@@ -8,6 +8,7 @@ export function bindControls(ui, session, { document, window }) {
   listen(ui.stop, 'click', () => session.stop());
   listen(ui.mode, 'click', () => session.switchMode());
   listen(ui.reset, 'click', () => session.reset());
+  listen(ui.performance, 'change', () => session.applySettings({ performance: ui.performance.value }));
   for (const channel of ['left', 'right']) {
     listen(ui[channel + '-scale'], 'change', () => session.applySettings({ [channel]: { scale: ui[channel + '-scale'].value } }));
     listen(ui[channel + '-sound'], 'change', () => session.applySettings({ [channel]: { sound: ui[channel + '-sound'].value } }));

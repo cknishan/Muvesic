@@ -1,3 +1,4 @@
+import { arrangeOrchestra } from '../music/orchestra.js';
 import { MotionMapper } from '../music/motion-mapper.js';
 import { SCALES } from '../music/scales.js';
 import { Synthesizer } from '../audio.js';
@@ -5,17 +6,24 @@ import { HandTracker } from '../tracking/hand-tracker.js';
 import { cameraError } from '../tracking/errors.js';
 import { CHANNELS, DEFAULT_SETTINGS, validateSettings } from './settings.js';
 
+const ENSEMBLE = 'ensemble';
+
 /** Owns idle/loading/running transitions and per-session resources.
  * Factories are injectable so lifecycle tests need neither a DOM nor hardware.
  * The generation token prevents an old async startup from reviving a stopped session.
+ *
+ * Performance modes are exclusive. Solo plays the two tracked hands on their own
+ * left/right channels; orchestra drops to a single conductor that drives one
+ * four-section ensemble. Either way only the active channels own a voice.
  */
 export function createSession({
   view, video, createInput,
   createAudio = () => new Synthesizer(),
   createTracker = (...args) => new HandTracker(...args),
 }) {
-  const mappers = Object.fromEntries(CHANNELS.map(channel =>
-    [channel, new MotionMapper(DEFAULT_SETTINGS[channel].scale)]));
+  // The ensemble keeps its own musical history so it never inherits a hand's notes.
+  const mappers = Object.fromEntries([...CHANNELS, ENSEMBLE].map(channel =>
+    [channel, new MotionMapper(DEFAULT_SETTINGS[channel]?.scale || DEFAULT_SETTINGS.right.scale)]));
   let settings = { ...DEFAULT_SETTINGS };
   let mode = 'camera';
   let state = 'idle';
@@ -25,14 +33,25 @@ export function createSession({
   let sessionTimer = null;
   let tracking = { left: false, right: false };
 
+  // Solo reads the right hand's scale, matching the keyboard lanes it draws.
+  const practiceChannel = () => settings.performance === 'orchestra' ? ENSEMBLE : 'right';
+  const activeChannels = () => settings.performance === 'orchestra' ? [ENSEMBLE] : CHANNELS;
+  const trackedChannels = () => activeChannels().filter(id => tracking[id]);
+  // The ensemble has no settings of its own: it borrows the right hand's scale and mix.
+  const ensembleSettings = () => settings.right;
+  const masterVolume = () => {
+    const { volume, mute } = ensembleSettings();
+    return [volume / 100, mute];
+  };
+
   const input = createInput({
     isEnabled: () => mode === 'mouse' && state === 'running',
     getLaneCount: () => SCALES[settings.right.scale].notes.length,
-    onPoint: (x, y, time) => playPoint('right', x, y, time),
-    onLost: () => loseTracking('right'),
-    onPitchStep: () => mappers.right.resetSmoothing(),
+    onPoint: (x, y, time) => playPoint(practiceChannel(), x, y, time),
+    onLost: () => loseTracking(practiceChannel()),
+    onPitchStep: () => mappers[practiceChannel()].resetSmoothing(),
   });
-  const renderControls = () => view.renderControls({ state, mode });
+  const renderControls = () => view.renderControls({ state, mode, performance: settings.performance });
 
   function loseTracking(channel = null) {
     const channels = channel ? [channel] : CHANNELS;
@@ -44,10 +63,13 @@ export function createSession({
       }
       tracking[id] = false;
     }
-    const anyTracking = CHANNELS.some(id => tracking[id]);
-    view.showTrackingHint(state === 'running' && mode === 'camera' && !anyTracking);
+    const tracked = trackedChannels().length;
+    view.showTrackingHint(state === 'running' && mode === 'camera' && tracked === 0);
     if (state === 'running') {
-      view.setStatus(mode === 'camera' && !anyTracking ? 'No hands detected' : 'Move into the play area');
+      const hint = settings.performance === 'orchestra'
+        ? 'Show one index finger to conduct the ensemble'
+        : 'Show one or two hands, then move an index finger to play';
+      view.setStatus(mode === 'camera' ? tracked ? hint + ' · Playing' : 'No hands detected' : 'Mouse & keys · Playing');
     }
   }
 
@@ -57,16 +79,22 @@ export function createSession({
     if (!mapped) return;
     tracking[channel] = true;
     view.showTrackingHint(false);
-    const active = CHANNELS.filter(id => tracking[id]).length;
-    view.setStatus(mode === 'camera' ? active + ' hand' + (active === 1 ? '' : 's') + ' tracked · Playing' : 'Mouse & keys · Playing');
+    const tracked = trackedChannels().length;
+    const hand = tracked + (settings.performance === 'orchestra' ? ' hand conducting' : ' hand' + (tracked === 1 ? '' : 's') + ' tracked');
+    view.setStatus(mode === 'camera' ? hand + ' · Playing' : 'Mouse & keys · Playing');
+    // A hand setting follows the channel that actually plays it.
+    const channelSettings = settings[channel] || ensembleSettings();
+    const arrangement = settings.performance === 'orchestra'
+      ? arrangeOrchestra(mapped.midi, channelSettings.scale) : null;
     try {
-      if (mapped.trigger) audio.play(channel, mapped.midi, mapped.velocity, mapped.pan, settings[channel].sound);
-      else audio.pan(channel, mapped.pan);
+      if (mapped.trigger) {
+        audio.play(channel, mapped.midi, mapped.velocity, mapped.pan, channelSettings.sound, arrangement);
+      } else audio.pan(channel, mapped.pan);
     } catch {
       fail(new Error('Audio playback stopped. Press Start to try again.'));
       return;
     }
-    view.renderNote(channel, mapped, landmarks, time);
+    view.renderNote(channel, mapped, landmarks, time, arrangement);
   }
 
   function handsByChannel(hands) {
@@ -74,6 +102,21 @@ export function createSession({
     if (visible.length === 0) return {};
     if (visible.length === 1) return { [(1 - visible[0][8].x) < .5 ? 'left' : 'right']: visible[0] };
     return { left: visible[0], right: visible[visible.length - 1] };
+  }
+
+  /** Orchestra keeps one hand on screen: hold the hand nearest the last conductor so
+   * a second hand entering frame cannot steal the ensemble mid-note.
+   */
+  function conductorOf(hands, previousX) {
+    const candidates = hands.filter(hand => hand?.[8]);
+    if (candidates.length < 2 || previousX === null) return candidates[0] || null;
+    // Compare mirrored x on both sides so the nearest hand really is the same hand.
+    return candidates.reduce((nearest, hand) =>
+      Math.abs(conductorX(hand) - previousX) < Math.abs(conductorX(nearest) - previousX) ? hand : nearest);
+  }
+
+  function conductorX(hand) {
+    return hand ? 1 - hand[8].x : null;
   }
 
   function stop(message = 'Session stopped') {
@@ -114,14 +157,26 @@ export function createSession({
       for (const channel of CHANNELS) {
         audio.setVolume(settings[channel].volume / 100, settings[channel].mute, channel);
       }
+      // Orchestra ignores the per-hand sound and level, so it borrows one hand's mix.
+      audio.setVolume(...masterVolume(), ENSEMBLE);
       await ownAudio.start();
       if (token !== generation) {
         void ownAudio.close().catch(() => {});
         return;
       }
       if (mode === 'camera') {
+        let previousConductorX = null;
         const ownTracker = createTracker(video, (hands, time) => {
           if (token !== generation || state !== 'running') return;
+          if (settings.performance === 'orchestra') {
+            const hand = conductorOf(hands, previousConductorX);
+            previousConductorX = conductorX(hand);
+            if (hand) {
+              // Mirror input once to match the displayed video. Drawing mirrors raw landmarks.
+              playPoint(ENSEMBLE, 1 - hand[8].x, hand[8].y, time, hand);
+            } else loseTracking(ENSEMBLE);
+            return;
+          }
           const channels = handsByChannel(hands);
           for (const channel of CHANNELS) {
             const landmarks = channels[channel];
@@ -158,18 +213,26 @@ export function createSession({
 
   function applySettings(patch) {
     const next = validateSettings(patch, settings);
+    const performanceChanged = next.performance !== settings.performance;
     const changed = CHANNELS.filter(channel =>
       next[channel].scale !== settings[channel].scale || next[channel].sound !== settings[channel].sound);
+    // Only the channels that are active right now can hold a voice, so capture them
+    // before the new performance replaces the old one.
+    const sounding = trackedChannels();
     settings = next;
-    for (const channel of changed) {
+    const toRelease = performanceChanged ? sounding : changed;
+    for (const channel of toRelease) {
       audio?.release(channel);
-      mappers[channel].setScale(settings[channel].scale);
       view.clearVisual(channel);
     }
+    for (const channel of changed) mappers[channel].setScale(settings[channel].scale);
+    if (performanceChanged) for (const mapper of Object.values(mappers)) mapper.reset();
     for (const channel of CHANNELS) {
       audio?.setVolume(settings[channel].volume / 100, settings[channel].mute, channel);
     }
+    if (audio) audio.setVolume(...masterVolume(), ENSEMBLE);
     view.renderSettings(settings);
+    renderControls();
     if (changed.length) view.renderLanes(settings);
     return readSettings();
   }
@@ -195,10 +258,13 @@ export function createSession({
   }
 
   function readSettings() {
-    return Object.fromEntries(CHANNELS.map(channel => [channel, {
-      scale: settings[channel].scale, sound: settings[channel].sound,
-      volume: settings[channel].volume, muted: settings[channel].mute,
-    }]));
+    return {
+      performance: settings.performance,
+      ...Object.fromEntries(CHANNELS.map(channel => [channel, {
+        scale: settings[channel].scale, sound: settings[channel].sound,
+        volume: settings[channel].volume, muted: settings[channel].mute,
+      }])),
+    };
   }
 
   view.renderLanes(settings);

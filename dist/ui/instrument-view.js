@@ -2,15 +2,21 @@ import { SCALES } from '../music/scales.js';
 import { noteName, frequency } from '../music/notes.js';
 import { createStageRenderer } from './stage-renderer.js';
 
+// Orchestra section timbres, in the order the arrangement voices them.
+const SECTIONS = ['strings', 'woodwind', 'brass', 'cello'];
+const ENSEMBLE = 'ensemble';
+
 /** Collect the DOM contract once; fail early when markup and controls drift. */
 export function collectUI(document) {
   const ids = ['stage', 'camera', 'overlay', 'lanes', 'welcome', 'tracking-hint',
     'status', 'input-label', 'start', 'stop', 'mode', 'reset', 'session-time',
-    'error', 'stage-help'];
+    'error', 'stage-help', 'performance', 'performance-hint', 'ensemble',
+    'left-panel', 'right-panel', 'conductor-heading', 'conductor-eyebrow',
+    ...SECTIONS.map(section => 'ensemble-' + section)];
   for (const channel of ['left', 'right']) {
-    ids.push(channel + '-sound', channel + '-scale', channel + '-scale-hint',
-      channel + '-volume', channel + '-volume-value', channel + '-mute',
-      channel + '-note', channel + '-frequency', channel + '-dynamics',
+    ids.push(channel + '-sound', channel + '-sound-label', channel + '-scale',
+      channel + '-scale-hint', channel + '-volume', channel + '-volume-value',
+      channel + '-mute', channel + '-note', channel + '-frequency', channel + '-dynamics',
       channel + '-meter', channel + '-meter-fill', channel + '-pan-dot');
   }
   return Object.fromEntries(ids.map(id => {
@@ -20,9 +26,13 @@ export function collectUI(document) {
   }));
 }
 
-/** DOM presentation only. The session controller supplies state and note events. */
+/** DOM presentation only. The session controller supplies state and note events.
+ * Solo and orchestra are exclusive: the two hand panels and the ensemble panel
+ * never appear at the same time, so one performance is always legible.
+ */
 export function createInstrumentView(ui) {
   const stage = createStageRenderer(ui.overlay);
+
   function renderLanes(settings) {
     const scale = settings.right?.scale || settings.scale || 'pentatonic';
     const lanes = [...SCALES[scale].notes].reverse().map((midi, i) => {
@@ -43,8 +53,12 @@ export function createInstrumentView(ui) {
     }
   }
 
-  function renderControls({ state, mode }) {
+  function renderControls({ state, mode, performance = 'solo' }) {
+    const ensemble = performance === 'orchestra';
+    document.body.dataset.performance = performance;
     document.body.dataset.running = String(state === 'running');
+    ui.welcome.querySelector('h2').innerHTML = ensemble
+      ? 'An orchestra.<br>In your hands.' : 'A little movement.<br>A little magic.';
     ui.start.disabled = state !== 'idle';
     ui.stop.disabled = state === 'idle';
     const startLabel = state === 'loading' ? 'Starting…' : mode === 'camera' ? 'Start camera' : 'Start playing';
@@ -57,17 +71,30 @@ export function createInstrumentView(ui) {
     ui.camera.hidden = mode !== 'camera';
     ui.stage.style.touchAction = state === 'running' && mode === 'mouse' ? 'none' : 'auto';
     ui['stage-help'].textContent = mode === 'camera'
-      ? 'Use two hands · Left and right sides control separate sounds · Lift to go higher'
+      ? ensemble
+        ? 'One hand conducts · Lift for higher harmonies · Move sideways to pan the ensemble'
+        : 'Use two hands · Left and right sides control separate sounds · Lift to go higher'
       : 'Move your pointer to play · On touchscreens, drag · Arrow keys change pitch and pan · Escape stops';
     ui.welcome.querySelector('p').innerHTML = mode === 'camera'
-      ? 'Start your camera, then move one or two<br>index fingers to play.'
+      ? ensemble
+        ? 'Start your camera, then move one<br>index finger to conduct the ensemble.'
+        : 'Start your camera, then move one or two<br>index fingers to play.'
       : 'Press Start playing, then move your pointer.<br>You can also focus this area and use arrow keys.';
+  }
+
+  // The ensemble is a single hand, so it reads out through the right-hand panel.
+  // Every channel must map to a real panel: an unknown id here throws inside the
+  // tracking frame loop and takes the camera down with it.
+  const panel = channel => (channel === ENSEMBLE ? 'right' : channel);
+
+  function clearSectionNotes() {
+    for (const section of SECTIONS) ui['ensemble-' + section].textContent = '—';
   }
 
   function clearVisual(channel = null) {
     stage.clear(channel);
     [...ui.lanes.children].forEach(lane => lane.classList.remove('active'));
-    const channels = channel ? [channel] : ['left', 'right'];
+    const channels = channel ? [panel(channel)] : ['left', 'right'];
     for (const id of channels) {
       ui[id + '-note'].textContent = '—';
       ui[id + '-frequency'].textContent = 'Waiting';
@@ -76,25 +103,50 @@ export function createInstrumentView(ui) {
       ui[id + '-meter'].setAttribute('aria-valuenow', '0');
       ui[id + '-pan-dot'].style.left = '50%';
     }
+    if (!channel || channel === ENSEMBLE) clearSectionNotes();
   }
 
-  function renderNote(channel, mapped, landmarks, time) {
+  function renderNote(channel, mapped, landmarks, time, arrangement = null) {
     [...ui.lanes.children].forEach((lane, i) => lane.classList.toggle('active', i === mapped.index));
-    ui[channel + '-note'].textContent = noteName(mapped.midi);
-    ui[channel + '-frequency'].textContent = frequency(mapped.midi).toFixed(1) + ' Hz';
+    const id = panel(channel);
+    ui[id + '-note'].textContent = noteName(mapped.midi);
+    ui[id + '-frequency'].textContent = frequency(mapped.midi).toFixed(1) + ' Hz';
     const intensity = Math.round(mapped.intensity * 100);
-    ui[channel + '-meter-fill'].style.width = intensity + '%';
-    ui[channel + '-meter'].setAttribute('aria-valuenow', String(intensity));
-    ui[channel + '-dynamics'].textContent = intensity > 65 ? 'Expressive' : intensity > 20 ? 'Flowing' : 'Gentle';
-    ui[channel + '-pan-dot'].style.left = mapped.x * 100 + '%';
+    ui[id + '-meter-fill'].style.width = intensity + '%';
+    ui[id + '-meter'].setAttribute('aria-valuenow', String(intensity));
+    ui[id + '-dynamics'].textContent = intensity > 65 ? 'Expressive' : intensity > 20 ? 'Flowing' : 'Gentle';
+    ui[id + '-pan-dot'].style.left = mapped.x * 100 + '%';
+    if (channel === ENSEMBLE) {
+      for (const section of SECTIONS) ui['ensemble-' + section].textContent = '—';
+      for (const part of arrangement || []) {
+        const readout = ui['ensemble-' + part.sound];
+        if (readout) readout.textContent = noteName(part.midi);
+      }
+    }
     stage.paint(channel, landmarks, mapped, time);
   }
 
   function renderSettings(settings) {
+    ui.performance.value = settings.performance;
+    const ensemble = settings.performance === 'orchestra';
+    document.body.dataset.performance = settings.performance;
+    ui['performance-hint'].textContent = ensemble
+      ? 'One hand leads the whole ensemble.' : 'One or two hands, each on its own sound.';
+    // Orchestra is a single hand on one ensemble, so the second hand panel is put
+    // away and the surviving panel is relabelled instead of showing a second scale.
+    ui['left-panel'].hidden = ensemble;
+    ui['right-panel'].hidden = false;
+    ui['conductor-heading'].textContent = ensemble ? 'Ensemble' : 'Right hand';
+    ui['conductor-eyebrow'].textContent = ensemble ? 'ENSEMBLE NOTE' : 'RIGHT NOTE';
+    ui.ensemble.hidden = !ensemble;
+    if (ensemble) clearSectionNotes();
     for (const channel of ['left', 'right']) {
       const { scale, sound, volume, mute } = settings[channel];
       ui[channel + '-scale'].value = scale;
       ui[channel + '-sound'].value = sound;
+      // The arrangement chooses section timbres, so solo sounds do not apply here.
+      ui[channel + '-sound'].hidden = ensemble;
+      ui[channel + '-sound-label'].hidden = ensemble;
       ui[channel + '-volume'].value = String(volume);
       ui[channel + '-volume-value'].textContent = volume + '%';
       ui[channel + '-mute'].setAttribute('aria-pressed', String(mute));

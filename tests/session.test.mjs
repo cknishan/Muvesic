@@ -11,7 +11,7 @@ test('mouse mode plays, releases on input loss, and stops its resources', async 
   assert.equal(h.trackers.length, 0);
   assert.ok(h.events.some(([name]) => name === 'input.start'));
   h.input().onPoint(0, 0, 100);
-  assert.deepEqual(h.audioInstances[0].notes[0], ['right', 72, .24, -1, 'keys']);
+  assert.deepEqual(h.audioInstances[0].notes[0], ['right', 72, .24, -1, 'keys', null]);
   h.input().onLost();
   assert.equal(h.audioInstances[0].released, 1);
   h.input().onPoint(1, 1, 200);
@@ -66,6 +66,7 @@ test('camera coordinates mirror once and missing frames release the note', async
   await h.session.start();
   const landmarks = Array.from({ length: 21 }, () => ({ x: .2, y: .5 }));
   h.trackers[0].onFrame([landmarks], 100);
+  assert.equal(h.audioInstances[0].notes[0][0], 'right');
   assert.ok(Math.abs(h.audioInstances[0].notes[0][3] - .6) < 1e-9);
   h.trackers[0].onFrame([], 200);
   assert.equal(h.audioInstances[0].released, 1);
@@ -84,7 +85,7 @@ test('invalid settings are atomic and reset restores the default camera session'
   assert.throws(() => h.session.applySettings({ left: { scale: 'major', volume: 200 } }));
   assert.deepEqual(h.session.read(), before);
   h.session.reset();
-  assert.deepEqual(h.session.read(), { state: 'idle', mode: 'camera',
+  assert.deepEqual(h.session.read(), { state: 'idle', mode: 'camera', performance: 'solo',
     left: { scale: 'pentatonic', sound: 'bass', volume: 65, muted: false },
     right: { scale: 'pentatonic', sound: 'keys', volume: 65, muted: false } });
 });
@@ -116,4 +117,72 @@ test('startup and playback failures return to idle and surface recovery text', a
   playing.input().onPoint(.5, .5, 100);
   assert.equal(playing.session.read().state, 'idle');
   assert.ok(playing.events.some(([name, message]) => name === 'showError' && /Audio playback stopped/.test(message)));
+});
+
+test('orchestra works in both inputs and switching back releases the ensemble', async t => {
+  for (const mouse of [true, false]) {
+    const h = sessionHarness();
+    t.after(() => h.session.dispose());
+    if (mouse) h.session.switchMode();
+    h.session.applySettings({ performance: 'orchestra' });
+    await h.session.start();
+    const hand = Array.from({ length: 21 }, () => ({ x: .5, y: .5 }));
+    const play = time => mouse ? h.input().onPoint(.5, .5, time)
+      : h.trackers[0].onFrame([hand], time);
+    play(100);
+    const ensemble = h.audioInstances[0].notes[0];
+    assert.equal(ensemble[0], 'ensemble', 'orchestra owns a single channel, not the two hands');
+    assert.equal(ensemble[5].length, 4);
+    h.session.applySettings({ performance: 'solo' });
+    assert.ok(h.audioInstances[0].releases.includes('ensemble'));
+    play(200);
+    const solo = h.audioInstances[0].notes.at(-1);
+    assert.equal(solo.length, 6);
+    assert.equal(solo[5], null);
+    assert.ok(['left', 'right'].includes(solo[0]), 'solo playback returns to the hand channels');
+  }
+});
+
+test('orchestra follows one conductor even when a second hand is visible', async t => {
+  const h = sessionHarness();
+  t.after(() => h.session.dispose());
+  h.session.applySettings({ performance: 'orchestra' });
+  await h.session.start();
+  const hand = (x, y) => Array.from({ length: 21 }, () => ({ x, y }));
+  h.trackers[0].onFrame([hand(.1, .5), hand(.9, .5)], 100);
+  assert.equal(h.audioInstances[0].notes.length, 1, 'two hands still make one ensemble note');
+  assert.ok(Math.abs(h.audioInstances[0].notes[0][3] - .8) < 1e-9);
+  // The other hand moves; the conductor keeps the ensemble, so the pan barely shifts.
+  h.trackers[0].onFrame([hand(.15, .5), hand(.9, .1)], 200);
+  assert.equal(h.audioInstances[0].notes.length, 1, 'the same pitch does not retrigger');
+  const [, , heldPan] = h.events.filter(([name]) => name === 'pan').at(-1);
+  assert.ok(heldPan > .6, 'the conductor keeps the ensemble instead of the nearer-in-x hand');
+  h.trackers[0].onFrame([hand(.15, .1), hand(.9, .9)], 300);
+  assert.equal(h.audioInstances[0].notes.length, 2);
+  assert.ok(h.audioInstances[0].notes[1][3] > .5, 'a second hand cannot steal the ensemble');
+  h.trackers[0].onFrame([], 400);
+  assert.ok(h.audioInstances[0].releases.includes('ensemble'));
+  assert.equal(h.session.read().state, 'running', 'losing the conductor must not stop the session');
+  // The hand comes back: the ensemble picks up again on the same running session.
+  h.trackers[0].onFrame([hand(.1, .5)], 500);
+  assert.equal(h.audioInstances[0].notes.length, 3, 'the ensemble returns when the hand does');
+  assert.equal(h.audioInstances[0].notes[2][0], 'ensemble');
+  assert.equal(h.audioInstances[0].notes[2][5].length, 4);
+});
+
+test('orchestra borrows the right hand mix and keeps both hand settings', async t => {
+  const h = sessionHarness();
+  t.after(() => h.session.dispose());
+  h.session.applySettings({ performance: 'orchestra', right: { volume: 40, mute: true } });
+  await h.session.start();
+  const ensembleMix = args => args[2] === 'ensemble';
+  assert.ok(h.audioInstances[0].volumes.some(args => ensembleMix(args) && args[0] === .4 && args[1] === true));
+  assert.ok(h.audioInstances[0].volumes.some(args => args[2] === 'right' && args[0] === .4 && args[1] === true));
+  assert.equal(h.session.read().right.volume, 40);
+  assert.equal(h.session.read().left.sound, 'bass', 'the left hand keeps its solo sound while orchestra is active');
+  h.session.applySettings({ performance: 'solo' });
+  assert.equal(h.session.read().right.muted, true, 'switching modes does not discard a choice');
+  h.session.reset();
+  assert.equal(h.session.read().right.volume, 65);
+  assert.equal(h.session.read().right.muted, false);
 });

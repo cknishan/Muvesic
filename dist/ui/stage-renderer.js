@@ -10,6 +10,7 @@ export function createStageRenderer(canvas) {
   const colors = {
     left: { line: '#c6f36b88', point: '#d9ff95', glow: '#c6f36b26' },
     right: { line: '#7cc7ff88', point: '#a8dcff', glow: '#7cc7ff26' },
+    ensemble: { line: '#edc78388', point: '#f3dcae', glow: '#edc78326' },
   };
   const visuals = new Map();
   const trails = new Map();
