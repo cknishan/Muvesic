@@ -20,6 +20,10 @@ const IDS = [...ACTION_IDS, 'left-panel', 'right-panel', 'conductor-heading', 'c
   ...['left', 'right'].flatMap(channel => ['sound', 'sound-label', 'scale', 'scale-hint', 'volume',
     'volume-value', 'mute', 'note', 'frequency', 'dynamics', 'meter', 'meter-fill', 'pan-dot']
     .map(suffix => channel + '-' + suffix)),
+  ...['left-arm', 'right-arm', 'left-leg', 'right-leg'].flatMap(prefix =>
+    ['sound', 'sound-label', 'scale', 'volume', 'volume-value', 'mute',
+     'note', 'frequency', 'dynamics', 'meter', 'meter-fill', 'pan-dot']
+      .map(suffix => prefix + '-' + suffix)),
   ...['strings', 'woodwind', 'brass', 'cello'].map(section => 'ensemble-' + section)];
 
 function harness() {
@@ -82,4 +86,24 @@ test('lifecycle buttons and page events reach the session', () => {
   ui.mode.fire('click');
   ui.reset.fire('click');
   assert.deepEqual(applied, [['start'], ['stop'], ['switchMode'], ['reset']]);
+});
+
+test('each body-mode limb has its own scale, sound, volume and mute binding', () => {
+  const { ui, session, applied, document, window } = harness();
+  bindControls(ui, session, { document, window });
+
+  ui['left-arm-scale'].value = 'minor';
+  ui['left-arm-scale'].fire('change');
+  assert.deepEqual(applied.at(-1), ['applySettings', { left: { scale: 'minor' } }]);
+
+  ui['right-leg-sound'].value = 'bass';
+  ui['right-leg-sound'].fire('change');
+  assert.deepEqual(applied.at(-1), ['applySettings', { lowerRight: { sound: 'bass' } }]);
+
+  ui['left-leg-volume'].value = '40';
+  ui['left-leg-volume'].fire('input');
+  assert.deepEqual(applied.at(-1), ['applySettings', { lowerLeft: { volume: 40 } }]);
+
+  ui['right-arm-mute'].fire('click');
+  assert.deepEqual(applied.at(-1), ['applySettings', { right: { mute: false } }]);
 });

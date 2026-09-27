@@ -15,6 +15,15 @@ export function bindControls(ui, session, { document, window }) {
     listen(ui[channel + '-volume'], 'input', () => session.applySettings({ [channel]: { volume: Number(ui[channel + '-volume'].value) } }));
     listen(ui[channel + '-mute'], 'click', () => session.applySettings({ [channel]: { mute: !session.read()[channel].muted } }));
   }
+  // Body mode owns four limb panels with the same shape as the hand panels.
+  const LIMB_PREFIX = { left: 'left-arm', right: 'right-arm', lowerLeft: 'left-leg', lowerRight: 'right-leg' };
+  for (const channel of Object.keys(LIMB_PREFIX)) {
+    const prefix = LIMB_PREFIX[channel];
+    listen(ui[prefix + '-scale'], 'change', () => session.applySettings({ [channel]: { scale: ui[prefix + '-scale'].value } }));
+    listen(ui[prefix + '-sound'], 'change', () => session.applySettings({ [channel]: { sound: ui[prefix + '-sound'].value } }));
+    listen(ui[prefix + '-volume'], 'input', () => session.applySettings({ [channel]: { volume: Number(ui[prefix + '-volume'].value) } }));
+    listen(ui[prefix + '-mute'], 'click', () => session.applySettings({ [channel]: { mute: !session.read()[channel].muted } }));
+  }
   listen(document, 'keydown', event => {
     if (event.key === 'Escape' && session.read().state !== 'idle') session.stop();
   });

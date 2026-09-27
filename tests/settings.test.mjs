@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { DEFAULT_SETTINGS, validateSettings } from '../dist/app/settings.js';
+import { DEFAULT_SETTINGS, PERFORMANCES, validateSettings } from '../dist/app/settings.js';
 
 test('settings patches preserve omitted values and do not mutate their inputs', () => {
   const patch = { left: { volume: 0, mute: true } };
@@ -34,4 +34,7 @@ test('the performance mode is top level and leaves both hands alone', () => {
   assert.equal(next.left, DEFAULT_SETTINGS.left);
   assert.equal(next.right, DEFAULT_SETTINGS.right);
   assert.equal(validateSettings({}, DEFAULT_SETTINGS).performance, 'solo');
+  assert.deepEqual(PERFORMANCES, ['solo', 'orchestra', 'body']);
+  assert.equal(validateSettings({ performance: 'body' }).performance, 'body');
+  assert.throws(() => validateSettings({ performance: 'feet' }), /Invalid instrument settings/);
 });
